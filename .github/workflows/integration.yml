@@ -1,0 +1,35 @@
+name: Integration
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  docker-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: development
+      POSTGRES_PASSWORD: qh8z-ci-postgres-password-2026
+      SHLINK_API_KEY: qh8z-ci-shlink-api-key-2026
+      QH8Z_DOMAIN: localhost
+      APP_BASE_URL: http://localhost:3000
+      PUBLIC_SHORT_BASE_URL: http://localhost:8080
+      SHLINK_HTTPS_ENABLED: 'false'
+      COOKIE_SECURE: 'false'
+      ALLOW_SIGNUP: 'true'
+      ADMIN_EMAIL: admin@example.com
+      SUPPORT_EMAIL: support@example.com
+      SKIP_INITIAL_GEOLITE_DOWNLOAD: 'true'
+      WEB_RISK_REQUIRED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Boot and exercise the full stack
+        run: bash scripts/integration.sh
+      - name: Upload compose logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qh8z-compose-logs
+          path: /tmp/qh8z-compose.log

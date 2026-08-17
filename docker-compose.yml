@@ -37,7 +37,7 @@ services:
       GEOLITE_LICENSE_KEY: ${GEOLITE_LICENSE_KEY:-}
       SKIP_INITIAL_GEOLITE_DOWNLOAD: ${SKIP_INITIAL_GEOLITE_DOWNLOAD:-true}
     ports:
-      - "${SHLINK_DEV_PORT:-8080}:8080"
+      - "127.0.0.1:${SHLINK_DEV_PORT:-8080}:8080"
 
   app:
     build:
@@ -61,11 +61,13 @@ services:
       ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@qh8z.com}
+      WEB_RISK_API_KEY: ${WEB_RISK_API_KEY:-}
+      WEB_RISK_REQUIRED: ${WEB_RISK_REQUIRED:-false}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_PRO_PRICE_ID: ${STRIPE_PRO_PRICE_ID:-}
     ports:
-      - "${APP_DEV_PORT:-3000}:3000"
+      - "127.0.0.1:${APP_DEV_PORT:-3000}:3000"
 
   caddy:
     image: caddy:2-alpine

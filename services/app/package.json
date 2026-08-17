@@ -6,7 +6,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "node src/server.mjs",
-    "check": "node --check src/server.mjs && node --check src/auth.mjs && node --check src/db.mjs && node --check src/shlink.mjs && node --check src/billing.mjs && node --check src/validation.mjs",
+    "check": "node --check src/server.mjs && node --check src/auth.mjs && node --check src/db.mjs && node --check src/shlink.mjs && node --check src/billing.mjs && node --check src/reputation.mjs && node --check src/validation.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {

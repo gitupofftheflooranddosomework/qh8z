@@ -24,6 +24,8 @@ export const config = Object.freeze({
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
   stripeProPriceId: process.env.STRIPE_PRO_PRICE_ID || '',
   supportEmail: process.env.SUPPORT_EMAIL || 'support@qh8z.com',
+  webRiskApiKey: process.env.WEB_RISK_API_KEY || '',
+  webRiskRequired: bool(process.env.WEB_RISK_REQUIRED, process.env.NODE_ENV === 'production'),
 });
 
 export const plans = Object.freeze({
