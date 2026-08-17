@@ -1,6 +1,7 @@
 export const RESERVED_SLUGS = new Set([
-  'api', 'app', 'login', 'signup', 'admin', 'pricing', 'report', 'healthz',
-  'privacy', 'terms', 'assets', 'favicon.svg', 'robots.txt', 'www', 'status'
+  'api', 'app', 'login', 'signup', 'admin', 'pricing', 'report', 'healthz', 'readyz',
+  'verify', 'forgot', 'reset', 'privacy', 'terms', 'security', 'assets', 'favicon.svg',
+  'robots.txt', 'www', 'status', 'support', 'abuse'
 ]);
 
 export function normalizeEmail(value) {
@@ -17,7 +18,9 @@ export function validPassword(value) {
 }
 
 export function normalizeHttpUrl(value) {
-  const parsed = new URL(String(value || '').trim());
+  const raw = String(value || '').trim();
+  if (!raw || raw.length > 8192) throw new Error('Destination URLs must be between 1 and 8192 characters');
+  const parsed = new URL(raw);
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Only http and https URLs are allowed');
   if (parsed.username || parsed.password) throw new Error('URLs containing embedded credentials are not allowed');
   return parsed.toString();
@@ -35,4 +38,8 @@ export function cleanTitle(value) {
   if (value == null) return null;
   const title = String(value).trim();
   return title ? title.slice(0, 160) : null;
+}
+
+export function accepted(value) {
+  return value === true || ['1','true','yes','on'].includes(String(value || '').toLowerCase());
 }
