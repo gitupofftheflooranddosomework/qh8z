@@ -1,31 +1,29 @@
-# Third-Party Notices
+# Third-party notices
 
-QH8Z uses and may adapt permissively licensed open-source software. This file records third-party provenance for components included in or substantially reused by QH8Z.
+QH8Z is built with and informed by open-source software. This file is intended to preserve provenance and make future commercial due diligence straightforward.
 
 ## Shlink
 
 - Project: Shlink
-- Upstream: `shlinkio/shlink`
-- Baseline evaluated for QH8Z: `v5.1.5`
+- Repository: `shlinkio/shlink`
+- Initial QH8Z baseline: v5.1.5
+- Role: runtime redirect and visit-tracking engine
 - License: MIT
-- Copyright: Copyright (c) 2016-2024 Alejandro Celaya
-- Current role: external/containerized redirect and link-management engine
+- License text: [`licenses/SHLINK-MIT.txt`](licenses/SHLINK-MIT.txt)
 
-The full upstream MIT license notice is preserved in [`licenses/SHLINK-MIT.txt`](licenses/SHLINK-MIT.txt).
+QH8Z communicates with Shlink through its REST API and deploys the official Shlink container. Shlink remains a distinct third-party component.
 
 ## Kutt
 
 - Project: Kutt
-- Upstream: `thedevs-network/kutt`
-- Baseline evaluated for QH8Z: `v3.2.6`
+- Repository: `thedevs-network/kutt`
+- Initial QH8Z reference baseline: v3.2.6
+- Role: product/UX implementation reference and potential selective code donor
 - License: MIT
-- Copyright: Copyright (c) 2020 Kutt
-- Current role: reference/donor project only; no wholesale Kutt runtime is included in the initial QH8Z bootstrap
+- License text: [`licenses/KUTT-MIT.txt`](licenses/KUTT-MIT.txt)
 
-If substantial Kutt code is copied or adapted into QH8Z, preserve its origin in commit history and/or source comments where useful, and retain the license notice below.
+At this stage QH8Z does not run the Kutt application as a second shortening engine. If substantial Kutt code is directly ported later, provenance should be recorded at the file/feature level.
 
-The full upstream MIT license notice is preserved in [`licenses/KUTT-MIT.txt`](licenses/KUTT-MIT.txt).
+## npm/container dependencies
 
-## QH8Z-owned code
-
-Code authored specifically for QH8Z is not automatically licensed under the upstream projects' MIT licenses merely because QH8Z interoperates with or contains MIT-licensed components. A project-wide QH8Z license has not yet been declared.
+QH8Z also depends on third-party Node packages and container images declared in `services/app/package.json` and `docker-compose.yml`. Their licenses remain their own. Dependency license auditing should be part of release due diligence.

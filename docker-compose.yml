@@ -1,51 +1,91 @@
 services:
-  postgres:
+  db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_USER: qh8z
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: qh8z
     volumes:
-      - qh8z-postgres:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-qh8z.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U qh8z -d qh8z"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
 
   shlink:
     image: shlinkio/shlink:5.1.5
     restart: unless-stopped
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
     environment:
-      DEFAULT_DOMAIN: ${SHLINK_DEFAULT_DOMAIN}
-      IS_HTTPS_ENABLED: ${SHLINK_IS_HTTPS_ENABLED}
+      DEFAULT_DOMAIN: ${QH8Z_DOMAIN:-localhost}
+      IS_HTTPS_ENABLED: ${SHLINK_HTTPS_ENABLED:-false}
       DB_DRIVER: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${POSTGRES_DB}
-      DB_USER: ${POSTGRES_USER}
+      DB_NAME: shlink
+      DB_USER: qh8z
       DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_HOST: db
+      DB_PORT: 5432
+      INITIAL_API_KEY: ${SHLINK_API_KEY}
+      REDIRECT_STATUS_CODE: 302
+      DEFAULT_INVALID_SHORT_URL_REDIRECT: ${APP_BASE_URL:-http://localhost:3000}
+      LOGS_FORMAT: console
+      GEOLITE_LICENSE_KEY: ${GEOLITE_LICENSE_KEY:-}
+      SKIP_INITIAL_GEOLITE_DOWNLOAD: ${SKIP_INITIAL_GEOLITE_DOWNLOAD:-true}
     ports:
-      - "8080:8080"
+      - "${SHLINK_DEV_PORT:-8080}:8080"
 
-  gateway:
+  app:
     build:
-      context: ./services/gateway
+      context: ./services/app
     restart: unless-stopped
     depends_on:
-      - shlink
+      db:
+        condition: service_healthy
+      shlink:
+        condition: service_started
     environment:
+      NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
-      QH8Z_ADMIN_TOKEN: ${QH8Z_ADMIN_TOKEN}
+      DATABASE_URL: postgresql://qh8z:${POSTGRES_PASSWORD}@db:5432/qh8z
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      PUBLIC_SHORT_BASE_URL: ${PUBLIC_SHORT_BASE_URL:-http://localhost:8080}
       SHLINK_BASE_URL: http://shlink:8080
       SHLINK_API_KEY: ${SHLINK_API_KEY}
-      PUBLIC_SHORT_BASE_URL: http://localhost:8080
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@qh8z.com}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRO_PRICE_ID: ${STRIPE_PRO_PRICE_ID:-}
     ports:
-      - "3000:3000"
+      - "${APP_DEV_PORT:-3000}:3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ["production"]
+    depends_on:
+      - app
+      - shlink
+    environment:
+      QH8Z_DOMAIN: ${QH8Z_DOMAIN:-qh8z.com}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
-  qh8z-postgres:
+  postgres_data:
+  caddy_data:
+  caddy_config:

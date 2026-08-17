@@ -1,148 +1,43 @@
-# QH8Z Architecture
+# QH8Z architecture
 
-## Goal
+## Decision
 
-Build QH8Z as a commercially useful link-management product without coupling the business to a single open-source implementation.
+QH8Z is not a literal concatenation of Kutt and Shlink repositories. That would create duplicate link models, authentication concepts, analytics paths, and a painful upgrade story.
 
-## Decision: compose, do not Frankenstein
+Instead, QH8Z combines them at the capability boundary:
 
-QH8Z will not run Kutt and Shlink as competing shortening engines.
+- Shlink owns redirect correctness, short-code mechanics, and raw visit tracking.
+- Kutt informs the product experience and feature set we want from a multi-user shortener.
+- QH8Z owns customer identity, product policy, plans, monetization, moderation, and presentation.
 
-- **Shlink** is the initial redirect/link engine.
-- **QH8Z** owns the customer-facing product and business layer.
-- **Kutt** is a selectively reused/reference source for useful product patterns and MIT-licensed implementation ideas.
+This produces one coherent product and preserves a future path to replace Shlink without replacing the business.
 
-This keeps one source of truth for redirects while allowing us to benefit from both projects.
+## Request paths
 
-## Boundaries
+Product/API: `Browser -> Caddy -> QH8Z Node app -> QH8Z PostgreSQL -> Shlink REST API when needed`.
 
-### Redirect engine — Shlink
+Redirect: `Visitor -> Caddy -> Shlink -> destination`, with Shlink tracking the visit. The redirect hot path never needs the QH8Z application server.
 
-Responsibilities:
+## Databases
 
-- short-code resolution
-- HTTP redirects
-- core short-link persistence
-- visit capture
-- redirect rules supported by Shlink
-- low-level link-management API
+One PostgreSQL server hosts two databases: `qh8z` for users/sessions/ownership/plans/abuse/audit, and `shlink` for Shlink-owned schema and visit records. QH8Z never reaches into Shlink's private database schema; integration stays on the documented REST API.
 
-QH8Z must access Shlink through a narrow adapter/gateway instead of letting product code scatter raw Shlink calls everywhere.
+## Identity and sessions
 
-### QH8Z product layer
+QH8Z uses its own accounts instead of exposing Shlink API keys. Passwords use bcrypt cost 12. Session tokens have 256 random bits; only a SHA-256 hash is stored in PostgreSQL. Cookies are HttpOnly/SameSite=Lax and Secure in production.
 
-Responsibilities planned for QH8Z-owned code:
+## Link ownership
 
-- accounts and sessions
-- organizations/workspaces
-- roles and permissions
-- subscription plans and billing
-- usage quotas
-- API tokens and customer-facing API
-- dashboard/UI
-- branded/custom domains
-- QR workflows
-- richer analytics presentation
-- bulk operations
-- abuse reports
-- destination screening and domain reputation controls
-- rate limiting and account reputation
-- audit trail/admin tooling
-- webhooks/integrations
+Every link created by QH8Z is recorded with its Shlink `short_code`. That QH8Z mapping is the authorization boundary. Shlink remains the source of truth for redirect execution and visits.
 
-### Kutt donor/reference role
+## Routing
 
-Kutt contains useful existing implementations for several product-level concerns. We may selectively adapt MIT-licensed code where it materially accelerates QH8Z.
+Caddy sends known product paths to QH8Z and every other path to Shlink. QH8Z therefore blocks custom aliases that would collide with product routes.
 
-Any substantial copied/adapted code should:
+## Billing and abuse
 
-1. be evaluated against the current QH8Z architecture rather than copied blindly;
-2. have provenance retained in Git history and, where helpful, source comments;
-3. preserve required MIT copyright/license notices;
-4. avoid importing Kutt-specific branding or assumptions unnecessarily.
+Stripe is isolated in the QH8Z layer. Public abuse reports flow to the QH8Z moderation queue, where admins can review and disable links; all important moderation actions create audit events.
 
-## Domain reputation
+## Upstream strategy
 
-`qh8z.com` is an asset as well as infrastructure. At launch:
-
-- no anonymous public link creation;
-- creation goes through authenticated QH8Z APIs;
-- restrict destinations to HTTP/HTTPS;
-- add rate limits before opening registration;
-- add destination/reputation checks before broad public access;
-- maintain an abuse-reporting and rapid-disable path.
-
-## Data ownership
-
-Shlink owns engine-specific redirect/visit data initially. QH8Z will maintain separate product/customer data.
-
-Do not encode billing, subscription, team, or customer identity concepts directly into Shlink tables. Link ownership should be mapped through QH8Z identifiers so the engine can be migrated later.
-
-## Migration strategy
-
-The desired long-term seam is:
-
-```text
-QH8Z product code -> LinkEngine interface -> Shlink adapter
-                                      \-> future QH8Z-native/edge engine
-```
-
-Before replacing Shlink, provide an export/import path for:
-
-- short codes
-- destination URLs
-- domains
-- redirect rules
-- creation timestamps
-- link metadata
-- aggregate analytics where useful
-
-## Initial milestones
-
-### M0 — Bootstrap
-
-- [x] establish architecture
-- [x] pin initial Shlink version
-- [x] preserve third-party notices
-- [x] create local PostgreSQL/Shlink stack
-- [x] create minimal QH8Z gateway
-
-### M1 — Private alpha
-
-- [ ] establish stable Shlink API-key bootstrap
-- [ ] QH8Z database/schema
-- [ ] account authentication
-- [ ] link ownership mapping
-- [ ] create/list/edit/disable links
-- [ ] first dashboard
-- [ ] rate limiting
-- [ ] abuse-disable workflow
-
-### M2 — Monetizable beta
-
-- [ ] organizations/workspaces
-- [ ] Stripe billing
-- [ ] free/pro/business plan enforcement
-- [ ] custom domains
-- [ ] QR codes
-- [ ] analytics UI
-- [ ] API keys and quotas
-- [ ] terms/privacy/acceptable-use flows
-
-### M3 — Public service
-
-- [ ] destination reputation screening
-- [ ] automated abuse detection
-- [ ] reporting pipeline
-- [ ] operational monitoring
-- [ ] backups/disaster recovery
-- [ ] production domain routing
-
-## Upstream baselines
-
-At bootstrap time:
-
-- Shlink: `v5.1.5`
-- Kutt: `v3.2.6`
-
-These are reference points, not promises to track every upstream release automatically. Security and correctness fixes should be reviewed regularly.
+Pin Shlink releases and upgrade deliberately. Do not vendor the entire Kutt app. If Kutt contains a useful implementation, port the smallest useful portion, preserve provenance and its MIT notice, and adapt it to the QH8Z model.
