@@ -6,7 +6,7 @@ QH8Z is a commercial link-shortening product for `qh8z.com`. It combines the str
 
 - **Shlink v5.1.5** is the replaceable redirect and visit-tracking engine.
 - **Kutt v3.2.6** is a product/UX feature donor and reference for the multi-user shortener experience.
-- **QH8Z-owned code** provides the customer-facing brand, accounts, sessions, plans, billing, link ownership, QR delivery, abuse reporting, moderation, and product UI.
+- **QH8Z-owned code** provides the customer-facing brand, accounts, sessions, plans, billing, link ownership, QR delivery, destination reputation checks, abuse reporting, moderation, and product UI.
 
 The result is intentionally a QH8Z product rather than a skin on either upstream project.
 
@@ -17,16 +17,19 @@ The result is intentionally a QH8Z product rather than a skin on either upstream
 - server-side sessions with HttpOnly/SameSite cookies and bcrypt password hashing
 - authenticated short-link creation and custom aliases
 - destination editing and redirect disabling
+- Google Web Risk destination checks on creation and edits, with fail-closed production mode
 - visit totals with bot/non-bot summaries plus raw per-link visit API
 - per-link QR codes
 - Free and Pro plan limits
 - optional Stripe Checkout, Billing Portal and webhook plan activation
 - public abuse reporting, admin moderation and audit events
+- protected one-time admin bootstrap flow
 - request rate limits, origin checks and security headers
 - PostgreSQL persistence with isolated QH8Z/Shlink databases
 - production Caddy reverse proxy with automatic HTTPS
-- GitHub Actions checks and Dependabot
-- preserved upstream MIT notices
+- backup/restore scripts
+- GitHub Actions unit/syntax CI plus a full Docker integration smoke test
+- Dependabot and preserved upstream MIT notices
 
 ## Architecture
 
@@ -54,8 +57,8 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ```bash
 cp .env.example .env
+# generate unique values for POSTGRES_PASSWORD and SHLINK_API_KEY
 openssl rand -hex 32
-# put strong generated values in POSTGRES_PASSWORD and SHLINK_API_KEY
 docker compose up --build
 ```
 
@@ -63,13 +66,21 @@ Open QH8Z at `http://localhost:3000`. Local short redirects are served by Shlink
 
 ## Production
 
-Set `QH8Z_DOMAIN=qh8z.com`, `NODE_ENV=production`, `APP_BASE_URL=https://qh8z.com`, `PUBLIC_SHORT_BASE_URL=https://qh8z.com`, `SHLINK_HTTPS_ENABLED=true`, `COOKIE_SECURE=true`, strong database/Shlink secrets, and an `ADMIN_EMAIL`. Point DNS to the host, then run:
+Start from the production template instead of adapting the development file:
+
+```bash
+cp .env.production.example .env
+```
+
+Set strong unique `POSTGRES_PASSWORD`, `SHLINK_API_KEY`, and `ADMIN_BOOTSTRAP_SECRET`; set the real `ADMIN_EMAIL`; configure a Google Web Risk API key; then point `qh8z.com` and `www.qh8z.com` at the host and run:
 
 ```bash
 docker compose --profile production up -d --build
 ```
 
-Read [`docs/LAUNCH.md`](docs/LAUNCH.md) before opening registration.
+The app and Shlink development ports bind only to loopback. Caddy is the intended public entry point on ports 80/443.
+
+Read [`docs/LAUNCH.md`](docs/LAUNCH.md) for the admin bootstrap, smoke test, backups, Stripe, and public-launch checklist.
 
 ## Monetization
 
@@ -82,9 +93,9 @@ Stripe is optional. When `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `STRI
 
 ## Security / abuse
 
-QH8Z intentionally does **not** provide anonymous shortening. Creating a redirect requires a QH8Z account. Shlink's administrative API remains private to the product service.
+QH8Z intentionally does **not** provide anonymous shortening. Creating a redirect requires a QH8Z account. Shlink's administrative API remains private to the product service. Production link creation is designed to fail closed when the destination reputation service is unavailable.
 
-Before scaling open signup, add a commercial malicious-destination reputation provider, monitored abuse/security mailboxes, off-host backups, observability, and jurisdiction-specific legal review.
+Before broad open signup, still establish monitored abuse/security mailboxes, off-host backup retention and restore drills, production observability, and jurisdiction-specific legal review.
 
 See [`SECURITY.md`](SECURITY.md).
 
