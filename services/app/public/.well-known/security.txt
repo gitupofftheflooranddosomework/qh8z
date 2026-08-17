@@ -1,0 +1,6 @@
+Contact: mailto:security@qh8z.com
+Contact: https://qh8z.com/security
+Expires: 2027-08-17T23:59:59Z
+Preferred-Languages: en
+Canonical: https://qh8z.com/.well-known/security.txt
+Policy: https://qh8z.com/security
