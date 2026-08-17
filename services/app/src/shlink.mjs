@@ -1,4 +1,5 @@
 import { config } from './config.mjs';
+import { checkUrlReputation } from './reputation.mjs';
 
 function headers() {
   if (!config.shlinkApiKey) throw new Error('SHLINK_API_KEY is not configured');
@@ -39,7 +40,14 @@ export function getShortUrl(shortCode) {
   return request(`/rest/v3/short-urls/${encodeURIComponent(shortCode)}`, { method: 'GET' });
 }
 
-export function editShortUrl(shortCode, { longUrl, title }) {
+export async function editShortUrl(shortCode, { longUrl, title }) {
+  const reputation = await checkUrlReputation(longUrl);
+  if (reputation.threats.length) {
+    const error = new Error('That destination is flagged as unsafe.');
+    error.status = 422;
+    error.threats = reputation.threats;
+    throw error;
+  }
   return request(`/rest/v3/short-urls/${encodeURIComponent(shortCode)}`, {
     method: 'PATCH',
     body: JSON.stringify({ longUrl, title: title ?? null })

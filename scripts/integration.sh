@@ -35,16 +35,18 @@ create_json=$(curl -fsS -b /tmp/qh8z-cookies.txt \
 printf '%s' "$create_json" >/tmp/qh8z-link.json
 link_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["link"]["id"])' </tmp/qh8z-link.json)
 
-curl -sS -D /tmp/qh8z-redirect-1.headers -o /dev/null http://localhost:8080/ci-link
-grep -Eiq '^location: https://example\.com/one\r?$' /tmp/qh8z-redirect-1.headers
+redirect_1=$(curl -sS -H 'Host: localhost' -o /dev/null -w '%{redirect_url}' http://localhost:8080/ci-link)
+echo "first redirect: ${redirect_1}"
+[[ "$redirect_1" == "https://example.com/one" ]]
 
 curl -fsS -b /tmp/qh8z-cookies.txt -X PATCH \
   -H 'content-type: application/json' \
   -d '{"longUrl":"https://example.com/two","title":"Updated CI link"}' \
   "http://localhost:3000/api/links/${link_id}" >/tmp/qh8z-edited.json
 
-curl -sS -D /tmp/qh8z-redirect-2.headers -o /dev/null http://localhost:8080/ci-link
-grep -Eiq '^location: https://example\.com/two\r?$' /tmp/qh8z-redirect-2.headers
+redirect_2=$(curl -sS -H 'Host: localhost' -o /dev/null -w '%{redirect_url}' http://localhost:8080/ci-link)
+echo "second redirect: ${redirect_2}"
+[[ "$redirect_2" == "https://example.com/two" ]]
 
 curl -fsS -b /tmp/qh8z-cookies.txt "http://localhost:3000/api/links/${link_id}/stats" >/tmp/qh8z-stats.json
 curl -fsS -H 'content-type: application/json' \
@@ -56,8 +58,8 @@ grep -q 'Integration test report' /tmp/qh8z-reports.json
 status=$(curl -sS -o /dev/null -w '%{http_code}' -b /tmp/qh8z-cookies.txt -X DELETE "http://localhost:3000/api/links/${link_id}")
 [[ "$status" == "204" ]]
 
-curl -sS -D /tmp/qh8z-disabled.headers -o /dev/null http://localhost:8080/ci-link || true
-if grep -Eiq '^location: https://example\.com/two\r?$' /tmp/qh8z-disabled.headers; then
+disabled_redirect=$(curl -sS -H 'Host: localhost' -o /dev/null -w '%{redirect_url}' http://localhost:8080/ci-link || true)
+if [[ "$disabled_redirect" == "https://example.com/two" ]]; then
   echo 'Disabled link still redirects to its former destination'
   exit 1
 fi
