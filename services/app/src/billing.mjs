@@ -5,7 +5,7 @@ import { pool, audit } from './db.mjs';
 const stripe = config.stripeSecretKey ? new Stripe(config.stripeSecretKey) : null;
 
 export function billingEnabled() {
-  return Boolean(stripe && config.stripeProPriceId);
+  return Boolean(stripe && config.stripeWebhookSecret && config.stripeProPriceId);
 }
 
 export async function createCheckout(user) {
@@ -19,7 +19,7 @@ export async function createCheckout(user) {
     cancel_url: `${config.appBaseUrl}/app?billing=cancelled`,
     metadata: { user_id: user.id },
     subscription_data: { metadata: { user_id: user.id } },
-    allow_promotion_codes: true
+    allow_promotion_codes: true,
   });
 }
 
@@ -28,27 +28,46 @@ export async function createPortal(user) {
   return stripe.billingPortal.sessions.create({ customer: user.stripe_customer_id, return_url: `${config.appBaseUrl}/app` });
 }
 
+function proStatus(status) {
+  return ['active', 'trialing', 'past_due'].includes(status);
+}
+
+async function applySubscription(subscription) {
+  const userId = subscription.metadata?.user_id;
+  if (!userId) return;
+  const plan = proStatus(subscription.status) ? 'pro' : 'free';
+  await pool.query('UPDATE users SET plan=$1,stripe_customer_id=COALESCE($2,stripe_customer_id) WHERE id=$3', [plan, subscription.customer || null, userId]);
+  await audit(userId, plan === 'pro' ? 'billing.pro_active' : 'billing.pro_inactive', userId, { subscriptionId: subscription.id, status: subscription.status });
+}
+
 export async function handleStripeWebhook(rawBody, signature) {
   if (!stripe || !config.stripeWebhookSecret) throw new Error('Stripe webhook is not configured');
   const event = stripe.webhooks.constructEvent(rawBody, signature, config.stripeWebhookSecret);
-
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const userId = session.metadata?.user_id;
-    if (userId) {
-      await pool.query('UPDATE users SET plan=$1,stripe_customer_id=COALESCE($2,stripe_customer_id) WHERE id=$3', ['pro', session.customer || null, userId]);
-      await audit(userId, 'billing.pro_activated', userId, { stripeSessionId: session.id });
+  const inserted = await pool.query(
+    'INSERT INTO stripe_events(event_id,event_type) VALUES($1,$2) ON CONFLICT (event_id) DO NOTHING RETURNING event_id',
+    [event.id, event.type]
+  );
+  if (!inserted.rows[0]) return `${event.type}:duplicate`;
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const userId = session.metadata?.user_id;
+      if (userId && session.customer) await pool.query('UPDATE users SET stripe_customer_id=$1 WHERE id=$2', [session.customer, userId]);
     }
-  }
-
-  if (event.type === 'customer.subscription.deleted') {
-    const subscription = event.data.object;
-    const userId = subscription.metadata?.user_id;
-    if (userId) {
-      await pool.query('UPDATE users SET plan=$1 WHERE id=$2', ['free', userId]);
-      await audit(userId, 'billing.pro_cancelled', userId, { subscriptionId: subscription.id });
+    if (['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted'].includes(event.type)) {
+      await applySubscription(event.data.object);
     }
+    return event.type;
+  } catch (error) {
+    await pool.query('DELETE FROM stripe_events WHERE event_id=$1', [event.id]);
+    throw error;
   }
+}
 
-  return event.type;
+export async function cancelBillingForUser(user) {
+  if (!stripe || !user?.stripe_customer_id) return;
+  const subscriptions = await stripe.subscriptions.list({ customer: user.stripe_customer_id, status: 'all', limit: 100 });
+  for (const subscription of subscriptions.data) {
+    if (!['canceled', 'incomplete_expired'].includes(subscription.status)) await stripe.subscriptions.cancel(subscription.id);
+  }
 }
