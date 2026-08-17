@@ -16,6 +16,17 @@ export async function migrate() {
       stripe_customer_id TEXT UNIQUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_version TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS suspension_reason TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret_enc TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_pending_secret_enc TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_pending_created_at TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled_at TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_recovery_hashes JSONB NOT NULL DEFAULT '[]'::jsonb;
 
     CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY,
@@ -25,6 +36,19 @@ export async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at);
+
+    CREATE TABLE IF NOT EXISTS auth_tokens (
+      token_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      purpose TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    ALTER TABLE auth_tokens DROP CONSTRAINT IF EXISTS auth_tokens_purpose_check;
+    ALTER TABLE auth_tokens ADD CONSTRAINT auth_tokens_purpose_check CHECK (purpose IN ('verify_email','reset_password','mfa_login'));
+    CREATE INDEX IF NOT EXISTS auth_tokens_user_purpose_idx ON auth_tokens(user_id,purpose,created_at DESC);
+    CREATE INDEX IF NOT EXISTS auth_tokens_expiry_idx ON auth_tokens(expires_at);
 
     CREATE TABLE IF NOT EXISTS links (
       id TEXT PRIMARY KEY,
@@ -50,6 +74,7 @@ export async function migrate() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       resolved_at TIMESTAMPTZ
     );
+    ALTER TABLE abuse_reports ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'other';
     CREATE INDEX IF NOT EXISTS abuse_reports_status_created_idx ON abuse_reports(status, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS audit_events (
@@ -59,6 +84,13 @@ export async function migrate() {
       target_id TEXT,
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS audit_events_created_idx ON audit_events(created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS stripe_events (
+      event_id TEXT PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
 }
@@ -72,4 +104,15 @@ export async function audit(actorUserId, eventType, targetId = null, metadata = 
 
 export async function cleanupExpiredSessions() {
   await pool.query('DELETE FROM sessions WHERE expires_at < NOW()');
+}
+
+export async function cleanupExpiredAuthTokens() {
+  await pool.query("DELETE FROM auth_tokens WHERE expires_at < NOW() OR (used_at IS NOT NULL AND used_at < NOW() - INTERVAL '1 day')");
+}
+
+export async function cleanupRetainedOperationalData() {
+  const days = Math.max(config.retentionDays, 30);
+  await pool.query(`DELETE FROM audit_events WHERE created_at < NOW() - ($1::text || ' days')::interval`, [days]);
+  await pool.query(`DELETE FROM abuse_reports WHERE status IN ('resolved','dismissed') AND resolved_at < NOW() - ($1::text || ' days')::interval`, [days]);
+  await pool.query(`DELETE FROM stripe_events WHERE processed_at < NOW() - ($1::text || ' days')::interval`, [days]);
 }
