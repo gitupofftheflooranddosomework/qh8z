@@ -19,6 +19,7 @@ export const config = Object.freeze({
   cookieSecure: bool(process.env.COOKIE_SECURE, process.env.NODE_ENV === 'production'),
   sessionTtlDays: int(process.env.SESSION_TTL_DAYS, 30),
   adminEmail: (process.env.ADMIN_EMAIL || '').trim().toLowerCase(),
+  adminBootstrapSecret: process.env.ADMIN_BOOTSTRAP_SECRET || '',
   allowSignup: bool(process.env.ALLOW_SIGNUP, true),
   stripeSecretKey: process.env.STRIPE_SECRET_KEY || '',
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
