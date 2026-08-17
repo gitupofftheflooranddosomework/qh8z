@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - qh8z-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  shlink:
+    image: shlinkio/shlink:5.1.5
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DEFAULT_DOMAIN: ${SHLINK_DEFAULT_DOMAIN}
+      IS_HTTPS_ENABLED: ${SHLINK_IS_HTTPS_ENABLED}
+      DB_DRIVER: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8080:8080"
+
+  gateway:
+    build:
+      context: ./services/gateway
+    restart: unless-stopped
+    depends_on:
+      - shlink
+    environment:
+      PORT: 3000
+      QH8Z_ADMIN_TOKEN: ${QH8Z_ADMIN_TOKEN}
+      SHLINK_BASE_URL: http://shlink:8080
+      SHLINK_API_KEY: ${SHLINK_API_KEY}
+      PUBLIC_SHORT_BASE_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+
+volumes:
+  qh8z-postgres:
