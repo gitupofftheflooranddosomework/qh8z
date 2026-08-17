@@ -1,13 +1,12 @@
 import { config } from './config.mjs';
-import { checkUrlReputation } from './reputation.mjs';
 
 function headers() {
   if (!config.shlinkApiKey) throw new Error('SHLINK_API_KEY is not configured');
-  return { 'content-type': 'application/json', 'X-Api-Key': config.shlinkApiKey };
+  return { 'content-type': 'application/json', accept: 'application/json', 'X-Api-Key': config.shlinkApiKey };
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(`${config.shlinkBaseUrl}${path}`, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
+  const response = await fetch(`${config.shlinkBaseUrl}${path}`, { ...options, headers: { ...headers(), ...(options.headers || {}) }, signal: options.signal || AbortSignal.timeout(8000) });
   const text = await response.text();
   let body = null;
   if (text) {
@@ -22,17 +21,15 @@ async function request(path, options = {}) {
   return body;
 }
 
+export async function checkShlinkHealth() {
+  const response = await fetch(`${config.shlinkBaseUrl}/rest/health`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(5000) });
+  return response.ok;
+}
+
 export function createShortUrl({ longUrl, customSlug, title }) {
   return request('/rest/v3/short-urls', {
     method: 'POST',
-    body: JSON.stringify({
-      longUrl,
-      ...(customSlug ? { customSlug } : {}),
-      ...(title ? { title } : {}),
-      findIfExists: false,
-      crawlable: false,
-      forwardQuery: true
-    })
+    body: JSON.stringify({ longUrl, ...(customSlug ? { customSlug } : {}), ...(title ? { title } : {}), findIfExists: false, crawlable: false, forwardQuery: true })
   });
 }
 
@@ -40,18 +37,8 @@ export function getShortUrl(shortCode) {
   return request(`/rest/v3/short-urls/${encodeURIComponent(shortCode)}`, { method: 'GET' });
 }
 
-export async function editShortUrl(shortCode, { longUrl, title }) {
-  const reputation = await checkUrlReputation(longUrl);
-  if (reputation.threats.length) {
-    const error = new Error('That destination is flagged as unsafe.');
-    error.status = 422;
-    error.threats = reputation.threats;
-    throw error;
-  }
-  return request(`/rest/v3/short-urls/${encodeURIComponent(shortCode)}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ longUrl, title: title ?? null })
-  });
+export function editShortUrl(shortCode, { longUrl, title }) {
+  return request(`/rest/v3/short-urls/${encodeURIComponent(shortCode)}`, { method: 'PATCH', body: JSON.stringify({ longUrl, title: title ?? null }) });
 }
 
 export function deleteShortUrl(shortCode) {
