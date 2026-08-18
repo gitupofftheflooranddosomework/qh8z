@@ -40,7 +40,8 @@ require_true EMAIL_VERIFICATION_REQUIRED
 require_true WEB_RISK_REQUIRED
 require_true TURNSTILE_REQUIRED
 for key in POSTGRES_PASSWORD SHLINK_API_KEY ADMIN_EMAIL ADMIN_BOOTSTRAP_SECRET MFA_ENCRYPTION_KEY SUPPORT_EMAIL ABUSE_EMAIL WEB_RISK_API_KEY TURNSTILE_SITE_KEY TURNSTILE_SECRET_KEY TERMS_VERSION SMTP_HOST MAIL_FROM LEGAL_OPERATOR_NAME LEGAL_JURISDICTION; do require_nonplaceholder "$key"; done
-[[ "$(value ADMIN_EMAIL)" != *@example.com ]] || { echo "FAIL: ADMIN_EMAIL must not use example.com" >&2; fail=1; }
+admin_email=$(value ADMIN_EMAIL)
+if [[ "$admin_email" != *@* || "$admin_email" == *.example || "$admin_email" == *replace-with* ]]; then echo "FAIL: ADMIN_EMAIL must be a real administrator address" >&2; fail=1; fi
 [[ "$(value MFA_ENCRYPTION_KEY)" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "FAIL: MFA_ENCRYPTION_KEY must be exactly 64 hex characters" >&2; fail=1; }
 for key in POSTGRES_PASSWORD SHLINK_API_KEY ADMIN_BOOTSTRAP_SECRET; do v=$(value "$key"); [[ ${#v} -ge 24 ]] || { echo "FAIL: $key must be at least 24 characters" >&2; fail=1; }; done
 [[ "$(value MAIL_MODE)" == "smtp" ]] || { echo "FAIL: MAIL_MODE must be smtp" >&2; fail=1; }
