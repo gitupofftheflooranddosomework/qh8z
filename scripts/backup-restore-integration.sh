@@ -60,7 +60,8 @@ if [[ "$quota_status_a" == "0" && "$quota_status_b" == "0" ]] || [[ "$quota_stat
 fi
 quota_after=$(docker compose exec -T db psql -U postgres -d qh8z -Atc "SELECT COUNT(*) FROM links WHERE user_id='quota-ci-user' AND disabled_at IS NULL;")
 [[ "$quota_after" == "25" ]]
-cat /tmp/qh8z-quota-a.log /tmp/qh8z-quota-b.log | grep -q 'link plan limit reached'
+quota_logs=$(cat /tmp/qh8z-quota-a.log /tmp/qh8z-quota-b.log)
+grep -q 'link plan limit reached' <<<"$quota_logs"
 docker compose exec -T db psql -U postgres -d qh8z -v ON_ERROR_STOP=1 -c "DELETE FROM users WHERE id='quota-ci-user';" >/dev/null
 
 # Simulate an ambiguous create handoff: Shlink has a live redirect, QH8Z has no
