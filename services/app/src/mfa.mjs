@@ -99,8 +99,8 @@ export function generateMfaSetup(email) {
 export function generateRecoveryCodes(count = 10) {
   const codes = [];
   for (let i = 0; i < count; i += 1) {
-    const raw = crypto.randomBytes(5).toString('hex').toUpperCase();
-    codes.push(`${raw.slice(0, 5)}-${raw.slice(5)}`);
+    const raw = crypto.randomBytes(8).toString('hex').toUpperCase();
+    codes.push(`${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}-${raw.slice(12)}`);
   }
   return { codes, hashes: codes.map(recoveryHash) };
 }
