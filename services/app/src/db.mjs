@@ -94,6 +94,13 @@ export async function migrate() {
     CREATE INDEX IF NOT EXISTS links_reputation_due_idx ON links(reputation_checked_at) WHERE disabled_at IS NULL;
     CREATE INDEX IF NOT EXISTS links_consistency_due_idx ON links(consistency_checked_at) WHERE disabled_at IS NULL;
 
+    CREATE TABLE IF NOT EXISTS shlink_create_intents (
+      short_code TEXT PRIMARY KEY,
+      long_url TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS shlink_create_intents_created_idx ON shlink_create_intents(created_at);
+
     CREATE TABLE IF NOT EXISTS abuse_reports (
       id TEXT PRIMARY KEY,
       link_id TEXT REFERENCES links(id) ON DELETE SET NULL,
@@ -133,9 +140,6 @@ export async function audit(actorUserId, eventType, targetId = null, metadata = 
     );
     return true;
   } catch (error) {
-    // Audit telemetry must not turn an already-completed business mutation into
-    // an inconsistent 500 response. Billing uses its own transactional audit
-    // helper because those rows are part of the Stripe event transaction.
     console.error(JSON.stringify({ level: 'error', event: 'audit.write_failed', auditEventType: eventType, targetId, message: error.message }));
     return false;
   }
