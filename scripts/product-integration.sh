@@ -128,12 +128,13 @@ python3 - "$expires_at" <<'PY'
 import json, sys
 from datetime import datetime
 with open('/tmp/qh8z-product-reconciled.json') as f: link=json.load(f)
+meta=link['meta']
 expected=datetime.fromisoformat(sys.argv[1].replace('Z','+00:00'))
-actual=datetime.fromisoformat(link['validUntil'].replace('Z','+00:00'))
+actual=datetime.fromisoformat(meta['validUntil'].replace('Z','+00:00'))
 assert link['longUrl']=='https://example.com/advanced'
 assert link['title']=='Product advanced'
 assert set(link['tags'])=={'launch','pro'}
-assert link['maxVisits']==25
+assert meta['maxVisits']==25
 assert actual==expected
 PY
 
