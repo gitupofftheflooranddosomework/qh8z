@@ -1,7 +1,8 @@
 import http from 'node:http';
-import { startupProblems } from './config.mjs';
+import { config, startupProblems } from './config.mjs';
 import { pool } from './db.mjs';
 import { startReputationWorker, stopReputationWorker } from './reputation.mjs';
+import { validateAdminMfaEncryption } from './startup-security.mjs';
 
 let server = null;
 let shuttingDown = false;
@@ -15,7 +16,7 @@ http.Server.prototype.listen = function qh8zCapturedListen(...args) {
   return originalListen.apply(this, args);
 };
 
-async function shutdown(signal) {
+async function shutdown(signal, requestedExitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(JSON.stringify({ level: 'info', event: 'app.shutdown_started', signal }));
@@ -45,7 +46,8 @@ async function shutdown(signal) {
     await pool.end();
     clearTimeout(forceTimer);
     console.log(JSON.stringify({ level: 'info', event: 'app.shutdown_completed', signal }));
-    process.exit(httpResult.status === 'fulfilled' && httpResult.value === true ? 0 : 1);
+    const drainFailed = httpResult.status !== 'fulfilled' || httpResult.value !== true;
+    process.exit(requestedExitCode || drainFailed ? 1 : 0);
   } catch (error) {
     clearTimeout(forceTimer);
     console.error(JSON.stringify({ level: 'error', event: 'app.shutdown_failed', signal, message: error.message }));
@@ -61,10 +63,20 @@ try {
   if (problems.length) throw new Error(`QH8Z startup blocked: ${problems.join('; ')}`);
   await import('./server.mjs');
   http.Server.prototype.listen = originalListen;
+
+  if (config.publicLaunchMode) {
+    const mfaProblems = await validateAdminMfaEncryption();
+    if (mfaProblems.length) throw new Error(`QH8Z startup blocked: ${mfaProblems.join('; ')}`);
+  }
+
   startReputationWorker();
 } catch (error) {
   http.Server.prototype.listen = originalListen;
   console.error(JSON.stringify({ level: 'error', event: 'app.startup_failed', message: error.message, stack: process.env.NODE_ENV === 'production' ? undefined : error.stack }));
-  try { await pool.end(); } catch {}
-  process.exitCode = 1;
+  if (server) {
+    await shutdown('STARTUP_FAILURE', 1);
+  } else {
+    try { await pool.end(); } catch {}
+    process.exitCode = 1;
+  }
 }
