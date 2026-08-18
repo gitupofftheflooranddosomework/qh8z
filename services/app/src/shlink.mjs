@@ -79,7 +79,7 @@ function createPayload({ longUrl, candidate, title, tags, validUntil, maxVisits 
   };
 }
 
-export async function createShortUrl({ longUrl, customSlug, title, tags = [], validUntil = null, maxVisits = null }) {
+export async function createShortUrl({ longUrl, customSlug, title, tags = [], validUntil = null, maxVisits = null, allowOwnedLinkId = null }) {
   const suppliedSlug = Boolean(customSlug);
   const maxAttempts = suppliedSlug ? 1 : 8;
 
@@ -95,8 +95,11 @@ export async function createShortUrl({ longUrl, customSlug, title, tags = [], va
 
     let postAttempted = false;
     try {
+      // Product DB ownership always wins. The only exception is a deliberate
+      // restore of this exact QH8Z link, identified by its immutable link ID.
+      // This prevents another account from recreating a disabled/missing slug.
       const owned = await pool.query('SELECT id FROM links WHERE short_code=$1 LIMIT 1', [candidate]);
-      if (owned.rows[0]) {
+      if (owned.rows[0] && owned.rows[0].id !== allowOwnedLinkId) {
         await clearCreateIntent(candidate);
         if (!suppliedSlug) continue;
         const error = new Error('That alias already exists');
@@ -106,6 +109,13 @@ export async function createShortUrl({ longUrl, customSlug, title, tags = [], va
 
       const before = await observeShortCode(candidate);
       if (before.found) {
+        // A prior delete or create can have an ambiguous network result. During
+        // an owned restore, the already-live redirect is acceptable only when
+        // it points to the policy-checked QH8Z destination for this same link.
+        if (allowOwnedLinkId && owned.rows[0]?.id === allowOwnedLinkId && sameDestination(before.value?.longUrl, longUrl)) {
+          await clearCreateIntent(candidate);
+          return { ...before.value, shortCode: before.value?.shortCode || candidate };
+        }
         await clearCreateIntent(candidate);
         if (!suppliedSlug) continue;
         const error = new Error('That alias already exists');
