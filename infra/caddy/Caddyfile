@@ -4,21 +4,21 @@ www.{$QH8Z_DOMAIN} {
 
 {$QH8Z_DOMAIN} {
   encode zstd gzip
-
+  log {
+    output stdout
+    format json
+  }
   header {
     Strict-Transport-Security "max-age=31536000; includeSubDomains"
     X-Content-Type-Options "nosniff"
-    Referrer-Policy "strict-origin-when-cross-origin"
+    X-Frame-Options "DENY"
+    Referrer-Policy "no-referrer"
+    Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(self)"
   }
-
-  @product {
-    path / /app /app/* /login /signup /privacy /terms /report /healthz /favicon.svg /robots.txt /api/* /assets/*
-  }
-
+  @product path / /app /app/* /login /signup /verify /forgot /reset /privacy /terms /security /report /healthz /readyz /favicon.svg /robots.txt /.well-known/security.txt /api/* /assets/*
   handle @product {
     reverse_proxy app:3000
   }
-
   handle {
     reverse_proxy shlink:8080
   }
