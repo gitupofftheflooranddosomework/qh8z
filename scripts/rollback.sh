@@ -20,7 +20,7 @@ app_port=$(grep -E '^APP_DEV_PORT=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -
 app_port=${app_port:-3000}
 ready=0
 for _ in $(seq 1 60); do
-  if curl -fsS "http://127.0.0.1:${app_port}/readyz" >/dev/null 2>&1; then ready=1; break; fi
+  if curl --connect-timeout 2 --max-time 5 -fsS "http://127.0.0.1:${app_port}/readyz" >/dev/null 2>&1; then ready=1; break; fi
   sleep 2
 done
 [[ "$ready" == "1" ]] || { echo "Rolled-back code did not become ready. Services were left running for inspection; backup: $backup_path" >&2; exit 1; }
