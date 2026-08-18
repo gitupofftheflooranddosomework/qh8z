@@ -7,10 +7,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker compose up -d --build db shlink app
+docker compose --profile production up -d --build --remove-orphans
 ready=0
 for _ in $(seq 1 90); do
-  if curl -fsS http://localhost:3000/readyz >/dev/null 2>&1; then ready=1; break; fi
+  if curl -fsS http://localhost:3000/readyz >/dev/null 2>&1 && curl -kfsS https://localhost/healthz >/dev/null 2>&1; then ready=1; break; fi
   sleep 2
 done
 [[ "$ready" == "1" ]]
@@ -26,6 +26,15 @@ backup_path=$(bash scripts/backup.sh /tmp/qh8z-backups)
 [[ -s "$backup_path" ]]
 [[ -s "$backup_path.sha256" ]]
 
+# A successful backup must return the previously running public stack without
+# recreating healthy dependencies or leaving the edge unavailable.
+for _ in $(seq 1 60); do
+  if curl -fsS http://localhost:3000/readyz >/dev/null 2>&1 && curl -kfsS https://localhost/healthz >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+curl -fsS http://localhost:3000/readyz >/dev/null
+curl -kfsS https://localhost/healthz >/dev/null
+
 # Destroy both sentinels after the snapshot so only restore can bring them back.
 docker compose exec -T db psql -U qh8z -d qh8z -v ON_ERROR_STOP=1 -c "DELETE FROM audit_events WHERE event_type='backup.restore.sentinel' AND target_id='ci-restore';" >/dev/null
 curl -fsS -X DELETE http://localhost:8080/rest/v3/short-urls/backup-ci -H "X-Api-Key: ${SHLINK_API_KEY}" >/dev/null
@@ -35,14 +44,14 @@ count=$(docker compose exec -T db psql -U qh8z -d qh8z -Atc "SELECT COUNT(*) FRO
 CONFIRM_RESTORE=YES bash scripts/restore.sh "$backup_path"
 ready=0
 for _ in $(seq 1 90); do
-  if curl -fsS http://localhost:3000/readyz >/dev/null 2>&1; then ready=1; break; fi
+  if curl -fsS http://localhost:3000/readyz >/dev/null 2>&1 && curl -kfsS https://localhost/healthz >/dev/null 2>&1; then ready=1; break; fi
   sleep 2
 done
 [[ "$ready" == "1" ]]
 
 count=$(docker compose exec -T db psql -U qh8z -d qh8z -Atc "SELECT COUNT(*) FROM audit_events WHERE event_type='backup.restore.sentinel' AND target_id='ci-restore';")
 [[ "$count" == "1" ]]
-restored_redirect=$(curl -sS -H 'Host: localhost' -o /dev/null -w '%{redirect_url}' http://localhost:8080/backup-ci)
+restored_redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/backup-ci)
 [[ "$restored_redirect" == "https://example.com/backup-restored" ]]
 
-echo 'QH8Z backup/restore drill passed for both application databases.'
+echo 'QH8Z backup/restore drill passed for both databases and the HTTPS edge.'
