@@ -3,8 +3,12 @@ import bcrypt from 'bcryptjs';
 import { pool } from './db.mjs';
 import { config } from './config.mjs';
 import { verifyMfaUser } from './mfa.mjs';
+import { validPassword } from './validation.mjs';
 
 const COOKIE = config.cookieSecure ? '__Host-qh8z_session' : 'qh8z_session';
+const SENSITIVE_WINDOW_MS = 15 * 60_000;
+const SENSITIVE_FAILURE_LIMIT = 12;
+const sensitiveFailures = new Map();
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
@@ -15,6 +19,30 @@ function parseCookies(header = '') {
     const idx = part.indexOf('=');
     return idx === -1 ? [part, ''] : [part.slice(0, idx), decodeURIComponent(part.slice(idx + 1))];
   }));
+}
+
+function sensitiveKey(req, userId) {
+  return `${userId}:${req.ip || req.socket?.remoteAddress || 'unknown'}`;
+}
+
+function sensitiveAllowed(req, userId) {
+  const key = sensitiveKey(req, userId);
+  const cutoff = Date.now() - SENSITIVE_WINDOW_MS;
+  const recent = (sensitiveFailures.get(key) || []).filter(ts => ts > cutoff);
+  if (recent.length) sensitiveFailures.set(key, recent); else sensitiveFailures.delete(key);
+  return recent.length < SENSITIVE_FAILURE_LIMIT;
+}
+
+function recordSensitiveFailure(req, userId) {
+  const key = sensitiveKey(req, userId);
+  const cutoff = Date.now() - SENSITIVE_WINDOW_MS;
+  const recent = (sensitiveFailures.get(key) || []).filter(ts => ts > cutoff);
+  recent.push(Date.now());
+  sensitiveFailures.set(key, recent);
+}
+
+function clearSensitiveFailures(req, userId) {
+  sensitiveFailures.delete(sensitiveKey(req, userId));
 }
 
 export async function hashPassword(password) {
@@ -70,14 +98,30 @@ export async function requireUser(req, res, next) {
   try {
     if (!req.user) return res.status(401).json({ error: 'authentication_required' });
     const route = req.originalUrl?.split('?')[0];
-    if (req.user.mfa_enabled_at && req.method === 'DELETE' && route === '/api/account') {
-      const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id]);
-      if (!rows[0] || !(await verifyMfaUser(rows[0], req.body?.mfaCode, false))) return res.status(401).json({ error: 'invalid_mfa_code', message: 'An authenticator or recovery code is required to delete this account.' });
+    const sensitivePasswordChange = req.method === 'POST' && route === '/api/account/password';
+    const sensitiveDeletion = req.method === 'DELETE' && route === '/api/account';
+    if (!sensitivePasswordChange && !sensitiveDeletion) return next();
+
+    if (!sensitiveAllowed(req, req.user.id)) return res.status(429).json({ error: 'sensitive_action_rate_limited', message: 'Too many failed verification attempts. Try again later.' });
+    if (sensitivePasswordChange && !validPassword(req.body?.newPassword)) return res.status(400).json({ error: 'invalid_password', message: 'New password must be 10-72 bytes.' });
+
+    const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id]);
+    const fullUser = rows[0];
+    if (!fullUser || !(await verifyPassword(req.body?.currentPassword ?? req.body?.password, fullUser.password_hash))) {
+      recordSensitiveFailure(req, req.user.id);
+      return res.status(400).json({ error: 'invalid_credentials' });
     }
-    if (req.user.mfa_enabled_at && req.method === 'POST' && route === '/api/account/password') {
-      const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id]);
-      if (!rows[0] || !(await verifyMfaUser(rows[0], req.body?.mfaCode, true))) return res.status(401).json({ error: 'invalid_mfa_code', message: 'An authenticator or recovery code is required to change your password.' });
+
+    if (fullUser.mfa_enabled_at) {
+      const consumeRecovery = sensitivePasswordChange;
+      if (!(await verifyMfaUser(fullUser, req.body?.mfaCode, consumeRecovery))) {
+        recordSensitiveFailure(req, req.user.id);
+        const message = sensitiveDeletion ? 'An authenticator or recovery code is required to delete this account.' : 'An authenticator or recovery code is required to change your password.';
+        return res.status(401).json({ error: 'invalid_mfa_code', message });
+      }
     }
+
+    clearSensitiveFailures(req, req.user.id);
     next();
   } catch (error) { next(error); }
 }
