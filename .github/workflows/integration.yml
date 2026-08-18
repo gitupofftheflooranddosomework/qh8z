@@ -11,8 +11,10 @@ jobs:
     timeout-minutes: 15
     env:
       NODE_ENV: development
-      POSTGRES_PASSWORD: qh8z-ci-postgres-password-2026
-      SHLINK_API_KEY: qh8z-ci-shlink-api-key-2026
+      POSTGRES_PASSWORD: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      QH8Z_DB_PASSWORD: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      SHLINK_DB_PASSWORD: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      SHLINK_API_KEY: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
       QH8Z_DOMAIN: localhost
       APP_BASE_URL: http://localhost:3000
       PUBLIC_SHORT_BASE_URL: http://localhost:8080
@@ -52,8 +54,10 @@ jobs:
     timeout-minutes: 15
     env:
       NODE_ENV: development
-      POSTGRES_PASSWORD: qh8z-ci-postgres-password-2026
-      SHLINK_API_KEY: qh8z-ci-shlink-api-key-2026
+      POSTGRES_PASSWORD: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      QH8Z_DB_PASSWORD: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      SHLINK_DB_PASSWORD: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      SHLINK_API_KEY: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
       QH8Z_DOMAIN: localhost
       APP_BASE_URL: http://localhost:3000
       PUBLIC_SHORT_BASE_URL: http://localhost:8080
