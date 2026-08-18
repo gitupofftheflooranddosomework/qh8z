@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/mailer"
+	"github.com/gitupofftheflooranddosomework/qh8z/internal/reputation"
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/storage"
 )
 
@@ -48,6 +49,8 @@ func testApp() (*app, *fakeMailer) {
 	return &app{
 		store:         storage.NewMemory(),
 		mailer:        fm,
+		reputation:    reputation.AllowAll{},
+		safety:        safetyConfig{adminToken: "test-admin-token-which-is-long-enough", rateLimitSalt: "test-rate-limit-salt"},
 		baseURL:       "https://qh8z.test",
 		logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		secureCookies: true,

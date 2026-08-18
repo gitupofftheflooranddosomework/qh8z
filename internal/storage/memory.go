@@ -4,11 +4,17 @@ import (
 	"context"
 	"encoding/hex"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/core"
 )
+
+type memoryRateWindow struct {
+	count   int
+	resetAt time.Time
+}
 
 type Memory struct {
 	mu            sync.RWMutex
@@ -22,6 +28,10 @@ type Memory struct {
 	verifications map[string]core.EmailVerification
 	apiKeys       map[string]core.APIKey
 	audits        []core.AuditEntry
+	rateLimits    map[string]memoryRateWindow
+	urlRules      map[int64]core.URLRule
+	nextRuleID    int64
+	abuseReports  map[string]core.AbuseReport
 }
 
 func NewMemory() *Memory {
@@ -35,6 +45,9 @@ func NewMemory() *Memory {
 		sessions:      make(map[string]core.Session),
 		verifications: make(map[string]core.EmailVerification),
 		apiKeys:       make(map[string]core.APIKey),
+		rateLimits:    make(map[string]memoryRateWindow),
+		urlRules:      make(map[int64]core.URLRule),
+		abuseReports:  make(map[string]core.AbuseReport),
 	}
 }
 
@@ -426,6 +439,152 @@ func (m *Memory) ListAudit(_ context.Context, workspaceID string, limit int) ([]
 		}
 	}
 	return result, nil
+}
+
+func (m *Memory) CheckRateLimit(_ context.Context, bucketKey string, windowStart, resetAt time.Time, limit int) (core.RateLimitResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := bucketKey + "|" + windowStart.UTC().Format(time.RFC3339Nano)
+	window := m.rateLimits[key]
+	window.count++
+	window.resetAt = resetAt
+	m.rateLimits[key] = window
+	remaining := limit - window.count
+	if remaining < 0 {
+		remaining = 0
+	}
+	return core.RateLimitResult{Allowed: window.count <= limit, Limit: limit, Remaining: remaining, ResetAt: resetAt}, nil
+}
+
+func (m *Memory) MatchURLRule(_ context.Context, host string) (core.URLRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	var best core.URLRule
+	for _, rule := range m.urlRules {
+		matches := rule.MatchType == core.URLRuleHost && host == rule.Pattern
+		if rule.MatchType == core.URLRuleDomain {
+			matches = host == rule.Pattern || strings.HasSuffix(host, "."+rule.Pattern)
+		}
+		if !matches {
+			continue
+		}
+		if best.ID == 0 || len(rule.Pattern) > len(best.Pattern) {
+			best = rule
+		}
+	}
+	if best.ID == 0 {
+		return core.URLRule{}, core.ErrNotFound
+	}
+	return best, nil
+}
+
+func (m *Memory) CreateURLRule(_ context.Context, rule core.URLRule) (core.URLRule, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, existing := range m.urlRules {
+		if existing.MatchType == rule.MatchType && existing.Pattern == rule.Pattern {
+			return core.URLRule{}, core.ErrConflict
+		}
+	}
+	m.nextRuleID++
+	rule.ID = m.nextRuleID
+	m.urlRules[rule.ID] = rule
+	return rule, nil
+}
+
+func (m *Memory) ListURLRules(_ context.Context) ([]core.URLRule, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]core.URLRule, 0, len(m.urlRules))
+	for _, rule := range m.urlRules {
+		result = append(result, rule)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result, nil
+}
+
+func (m *Memory) DeleteURLRule(_ context.Context, id int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.urlRules[id]; !ok {
+		return core.ErrNotFound
+	}
+	delete(m.urlRules, id)
+	return nil
+}
+
+func (m *Memory) CreateAbuseReport(_ context.Context, report core.AbuseReport) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.abuseReports[report.ID]; exists {
+		return core.ErrConflict
+	}
+	if _, exists := m.links[report.Slug]; !exists {
+		return core.ErrNotFound
+	}
+	m.abuseReports[report.ID] = report
+	return nil
+}
+
+func (m *Memory) ListAbuseReports(_ context.Context, status string, limit int) ([]core.AbuseReport, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	result := make([]core.AbuseReport, 0, len(m.abuseReports))
+	for _, report := range m.abuseReports {
+		if status == "" || report.Status == status {
+			result = append(result, report)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].ID > result[j].ID
+		}
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+	if len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+
+func (m *Memory) UpdateAbuseReport(_ context.Context, id, status, notes string, now time.Time) (core.AbuseReport, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	report, ok := m.abuseReports[id]
+	if !ok {
+		return core.AbuseReport{}, core.ErrNotFound
+	}
+	report.Status = status
+	report.ReviewNotes = notes
+	report.ReviewedAt = &now
+	m.abuseReports[id] = report
+	return report, nil
+}
+
+func (m *Memory) SetLinkSuspension(_ context.Context, slug string, suspend bool, reason string, now time.Time, audit core.AuditEntry) (core.Link, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	link, ok := m.links[slug]
+	if !ok {
+		return core.Link{}, core.ErrNotFound
+	}
+	if suspend {
+		link.SuspendedAt = &now
+		link.SuspensionReason = reason
+	} else {
+		link.SuspendedAt = nil
+		link.SuspensionReason = ""
+	}
+	m.links[slug] = link
+	if audit.WorkspaceID == "" {
+		audit.WorkspaceID = link.WorkspaceID
+	}
+	m.appendAuditLocked(audit)
+	return link, nil
 }
 
 func (m *Memory) ensureMembershipMap(workspaceID string) map[string]core.Membership {

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/core"
@@ -20,7 +21,8 @@ import (
 var migrationFiles embed.FS
 
 type Store struct {
-	db *sql.DB
+	db              *sql.DB
+	lastRateCleanup atomic.Int64
 }
 
 func Open(ctx context.Context, databaseURL string) (*Store, error) {
@@ -144,19 +146,19 @@ VALUES ($1, $2, $3, $4, $5, $6)`,
 
 func (s *Store) GetLink(ctx context.Context, slug string) (core.Link, error) {
 	return scanLink(s.db.QueryRowContext(ctx, `
-SELECT slug, destination_url, COALESCE(workspace_id, ''), COALESCE(created_by_user_id, ''), created_at, visit_count
+SELECT slug, destination_url, COALESCE(workspace_id, ''), COALESCE(created_by_user_id, ''), created_at, visit_count, suspended_at, suspension_reason
 FROM links WHERE slug = $1`, slug))
 }
 
 func (s *Store) GetWorkspaceLink(ctx context.Context, workspaceID, slug string) (core.Link, error) {
 	return scanLink(s.db.QueryRowContext(ctx, `
-SELECT slug, destination_url, COALESCE(workspace_id, ''), COALESCE(created_by_user_id, ''), created_at, visit_count
+SELECT slug, destination_url, COALESCE(workspace_id, ''), COALESCE(created_by_user_id, ''), created_at, visit_count, suspended_at, suspension_reason
 FROM links WHERE slug = $1 AND workspace_id = $2`, slug, workspaceID))
 }
 
 func scanLink(row *sql.Row) (core.Link, error) {
 	var link core.Link
-	err := row.Scan(&link.Slug, &link.URL, &link.WorkspaceID, &link.CreatedByUserID, &link.CreatedAt, &link.Visits)
+	err := row.Scan(&link.Slug, &link.URL, &link.WorkspaceID, &link.CreatedByUserID, &link.CreatedAt, &link.Visits, &link.SuspendedAt, &link.SuspensionReason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.Link{}, core.ErrNotFound
 	}
