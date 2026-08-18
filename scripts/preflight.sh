@@ -58,10 +58,17 @@ require_true TURNSTILE_REQUIRED
 for key in QH8Z_DOMAIN POSTGRES_PASSWORD QH8Z_DB_PASSWORD SHLINK_DB_PASSWORD SHLINK_API_KEY ADMIN_EMAIL MFA_ENCRYPTION_KEY SUPPORT_EMAIL ABUSE_EMAIL WEB_RISK_API_KEY TURNSTILE_SITE_KEY TURNSTILE_SECRET_KEY TERMS_VERSION SMTP_HOST MAIL_FROM LEGAL_OPERATOR_NAME LEGAL_JURISDICTION; do require_nonplaceholder "$key"; done
 
 domain=$(value QH8Z_DOMAIN)
-if [[ ! "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ || "$domain" == *..* || "$domain" == .* || "$domain" == *. ]]; then
-  echo "FAIL: QH8Z_DOMAIN must be a plain hostname" >&2
+domain_lower=${domain,,}
+if [[ ! "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ || "$domain" == *..* || "$domain" == .* || "$domain" == *. || "$domain" != *.* || "$domain" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+  echo "FAIL: QH8Z_DOMAIN must be a public fully qualified hostname" >&2
   fail=1
 fi
+case "$domain_lower" in
+  localhost|*.localhost|*.local|*.test|*.invalid|*.example|*.internal)
+    echo "FAIL: QH8Z_DOMAIN cannot use a reserved local/test/internal hostname" >&2
+    fail=1
+    ;;
+esac
 expected_origin="https://${domain}"
 [[ "$(value APP_BASE_URL)" == "$expected_origin" ]] || { echo "FAIL: APP_BASE_URL must exactly equal $expected_origin" >&2; fail=1; }
 [[ "$(value PUBLIC_SHORT_BASE_URL)" == "$expected_origin" ]] || { echo "FAIL: PUBLIC_SHORT_BASE_URL must exactly equal $expected_origin" >&2; fail=1; }
