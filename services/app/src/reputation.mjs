@@ -82,3 +82,5 @@ export function startReputationWorker() {
   setTimeout(run, 30_000).unref();
   setInterval(run, config.reputationWorkerMinutes * 60_000).unref();
 }
+
+startReputationWorker();
