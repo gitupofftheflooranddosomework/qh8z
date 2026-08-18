@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/mailer"
+	"github.com/gitupofftheflooranddosomework/qh8z/internal/reputation"
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/storage"
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/storage/postgres"
 )
@@ -21,6 +22,8 @@ import (
 type app struct {
 	store         storage.Store
 	mailer        mailer.Mailer
+	reputation    reputation.Checker
+	safety        safetyConfig
 	baseURL       string
 	logger        *slog.Logger
 	secureCookies bool
@@ -45,9 +48,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	checker, safety, err := openSafety(environment)
+	if err != nil {
+		logger.Error("safety startup failed", "error", err)
+		os.Exit(1)
+	}
+
 	a := &app{
 		store:         store,
 		mailer:        email,
+		reputation:    checker,
+		safety:        safety,
 		baseURL:       baseURL,
 		logger:        logger,
 		secureCookies: environment == "production",
@@ -125,8 +136,8 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("GET /readyz", a.ready)
 
-	mux.HandleFunc("POST /api/v1/auth/register", a.register)
-	mux.HandleFunc("POST /api/v1/auth/login", a.login)
+	mux.Handle("POST /api/v1/auth/register", a.limitIPHandler("register", 10, time.Hour, http.HandlerFunc(a.register)))
+	mux.Handle("POST /api/v1/auth/login", a.limitIPHandler("login", 60, 15*time.Minute, http.HandlerFunc(a.login)))
 	mux.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	mux.HandleFunc("POST /api/v1/auth/verify-email", a.verifyEmail)
 	mux.HandleFunc("POST /api/v1/auth/resend-verification", a.resendVerification)
@@ -140,12 +151,21 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/workspaces/{workspace}/api-keys", a.createAPIKey)
 	mux.HandleFunc("GET /api/v1/workspaces/{workspace}/audit", a.auditLog)
 
+	mux.HandleFunc("POST /api/v1/abuse-reports", a.createAbuseReport)
+	mux.HandleFunc("GET /api/v1/admin/abuse-reports", a.listAbuseReports)
+	mux.HandleFunc("PATCH /api/v1/admin/abuse-reports/{id}", a.reviewAbuseReport)
+	mux.HandleFunc("GET /api/v1/admin/url-rules", a.listURLRules)
+	mux.HandleFunc("POST /api/v1/admin/url-rules", a.createURLRule)
+	mux.HandleFunc("DELETE /api/v1/admin/url-rules/{id}", a.deleteURLRule)
+	mux.HandleFunc("POST /api/v1/admin/links/{slug}/suspend", a.suspendLink)
+	mux.HandleFunc("POST /api/v1/admin/links/{slug}/unsuspend", a.unsuspendLink)
+
 	mux.HandleFunc("POST /api/v1/links", a.createLink)
 	mux.HandleFunc("GET /api/v1/links/{slug}", a.getLink)
 	mux.HandleFunc("GET /api/v1/links/{slug}/stats", a.linkStats)
 	mux.HandleFunc("GET /{slug}", a.redirect)
 	mux.HandleFunc("GET /", a.home)
-	return mux
+	return a.apiRateLimit(mux)
 }
 
 func (a *app) health(w http.ResponseWriter, _ *http.Request) {

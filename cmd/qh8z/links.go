@@ -14,12 +14,14 @@ import (
 )
 
 type linkResponse struct {
-	Slug        string    `json:"slug"`
-	URL         string    `json:"url"`
-	ShortURL    string    `json:"shortUrl"`
-	WorkspaceID string    `json:"workspaceId"`
-	CreatedAt   time.Time `json:"createdAt"`
-	Visits      int64     `json:"visits"`
+	Slug             string     `json:"slug"`
+	URL              string     `json:"url"`
+	ShortURL         string     `json:"shortUrl"`
+	WorkspaceID      string     `json:"workspaceId"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	Visits           int64      `json:"visits"`
+	SuspendedAt      *time.Time `json:"suspendedAt,omitempty"`
+	SuspensionReason string     `json:"suspensionReason,omitempty"`
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9_-]{3,64}$`)
@@ -46,6 +48,16 @@ func (a *app) createLink(w http.ResponseWriter, r *http.Request) {
 	target, err := normalizeURL(req.URL)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.checkDestination(r.Context(), target, auth); err != nil {
+		var rejected *destinationRejectedError
+		if errors.As(err, &rejected) {
+			writeError(w, http.StatusUnprocessableEntity, rejected.Error())
+			return
+		}
+		a.logger.Error("destination safety check failed", "error", err)
+		writeError(w, http.StatusServiceUnavailable, "destination safety check unavailable")
 		return
 	}
 
@@ -130,6 +142,10 @@ func (a *app) redirect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	if item.SuspendedAt != nil {
+		http.NotFound(w, r)
+		return
+	}
 	visit := core.Visit{
 		Slug:      slug,
 		VisitedAt: time.Now().UTC(),
@@ -144,12 +160,14 @@ func (a *app) redirect(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) response(item core.Link) linkResponse {
 	return linkResponse{
-		Slug:        item.Slug,
-		URL:         item.URL,
-		ShortURL:    a.baseURL + "/" + item.Slug,
-		WorkspaceID: item.WorkspaceID,
-		CreatedAt:   item.CreatedAt,
-		Visits:      item.Visits,
+		Slug:             item.Slug,
+		URL:              item.URL,
+		ShortURL:         a.baseURL + "/" + item.Slug,
+		WorkspaceID:      item.WorkspaceID,
+		CreatedAt:        item.CreatedAt,
+		Visits:           item.Visits,
+		SuspendedAt:      item.SuspendedAt,
+		SuspensionReason: item.SuspensionReason,
 	}
 }
 
@@ -163,6 +181,9 @@ func normalizeURL(raw string) (string, error) {
 	}
 	if u.User != nil {
 		return "", errors.New("URLs containing credentials are not allowed")
+	}
+	if err := validatePublicDestination(u); err != nil {
+		return "", err
 	}
 	return u.String(), nil
 }

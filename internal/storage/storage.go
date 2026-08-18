@@ -35,6 +35,18 @@ type Store interface {
 	WriteAudit(context.Context, core.AuditEntry) error
 	ListAudit(context.Context, string, int) ([]core.AuditEntry, error)
 
+	CheckRateLimit(context.Context, string, time.Time, time.Time, int) (core.RateLimitResult, error)
+
+	MatchURLRule(context.Context, string) (core.URLRule, error)
+	CreateURLRule(context.Context, core.URLRule) (core.URLRule, error)
+	ListURLRules(context.Context) ([]core.URLRule, error)
+	DeleteURLRule(context.Context, int64) error
+
+	CreateAbuseReport(context.Context, core.AbuseReport) error
+	ListAbuseReports(context.Context, string, int) ([]core.AbuseReport, error)
+	UpdateAbuseReport(context.Context, string, string, string, time.Time) (core.AbuseReport, error)
+	SetLinkSuspension(context.Context, string, bool, string, time.Time, core.AuditEntry) (core.Link, error)
+
 	Ping(context.Context) error
 	Close() error
 }

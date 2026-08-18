@@ -116,7 +116,52 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 		t.Fatalf("audit = %+v, err = %v", audit, err)
 	}
 
-	// A second store proves both migrations are idempotent and data survives new connections.
+	windowStart := now.Truncate(time.Minute)
+	firstLimit, err := s.CheckRateLimit(ctx, "test:"+suffix, windowStart, windowStart.Add(time.Minute), 1)
+	if err != nil || !firstLimit.Allowed {
+		t.Fatalf("first rate limit = %+v, err = %v", firstLimit, err)
+	}
+	secondLimit, err := s.CheckRateLimit(ctx, "test:"+suffix, windowStart, windowStart.Add(time.Minute), 1)
+	if err != nil || secondLimit.Allowed {
+		t.Fatalf("second rate limit = %+v, err = %v", secondLimit, err)
+	}
+
+	rule, err := s.CreateURLRule(ctx, core.URLRule{Action: core.URLRuleBlock, MatchType: core.URLRuleDomain, Pattern: "blocked-" + suffix + ".example.net", Reason: "test", CreatedAt: now})
+	if err != nil {
+		t.Fatalf("create URL rule: %v", err)
+	}
+	matched, err := s.MatchURLRule(ctx, "sub."+rule.Pattern)
+	if err != nil || matched.ID != rule.ID {
+		t.Fatalf("matched rule = %+v, err = %v", matched, err)
+	}
+
+	reportID := "abr_test_" + suffix
+	report := core.AbuseReport{ID: reportID, Slug: slug, DestinationURL: created.URL, Category: "phishing", Details: "test", Status: core.AbuseStatusOpen, CreatedAt: now}
+	if err := s.CreateAbuseReport(ctx, report); err != nil {
+		t.Fatalf("create abuse report: %v", err)
+	}
+	reports, err := s.ListAbuseReports(ctx, core.AbuseStatusOpen, 10)
+	if err != nil || len(reports) == 0 {
+		t.Fatalf("list abuse reports = %+v, err = %v", reports, err)
+	}
+	updatedReport, err := s.UpdateAbuseReport(ctx, reportID, core.AbuseStatusReviewed, "reviewed", now.Add(time.Minute))
+	if err != nil || updatedReport.Status != core.AbuseStatusReviewed {
+		t.Fatalf("review report = %+v, err = %v", updatedReport, err)
+	}
+
+	suspended, err := s.SetLinkSuspension(ctx, slug, true, "abuse review", now.Add(time.Minute), core.AuditEntry{Action: "admin.link_suspended", ResourceType: "link", ResourceID: slug, CreatedAt: now.Add(time.Minute)})
+	if err != nil || suspended.SuspendedAt == nil {
+		t.Fatalf("suspend link = %+v, err = %v", suspended, err)
+	}
+	readSuspended, err := s.GetLink(ctx, slug)
+	if err != nil || readSuspended.SuspendedAt == nil {
+		t.Fatalf("read suspended link = %+v, err = %v", readSuspended, err)
+	}
+	if _, err := s.SetLinkSuspension(ctx, slug, false, "", now.Add(2*time.Minute), core.AuditEntry{Action: "admin.link_unsuspended", ResourceType: "link", ResourceID: slug, CreatedAt: now.Add(2 * time.Minute)}); err != nil {
+		t.Fatalf("unsuspend link: %v", err)
+	}
+
+	// A second store proves all migrations are idempotent and data survives new connections.
 	s2, err := Open(ctx, dsn)
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
