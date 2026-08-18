@@ -81,6 +81,19 @@ export async function createShortUrl({ longUrl, customSlug, title }) {
 
     let postAttempted = false;
     try {
+      // QH8Z ownership wins even if the redirect engine temporarily lost the
+      // corresponding short URL. Never recreate an alias already present in the
+      // product database for another request/user and rely on a later unique
+      // constraint to catch it—that would create a brief wrong-target window.
+      const owned = await pool.query('SELECT id FROM links WHERE short_code=$1 LIMIT 1', [candidate]);
+      if (owned.rows[0]) {
+        await clearCreateIntent(candidate);
+        if (!suppliedSlug) continue;
+        const error = new Error('That alias already exists');
+        error.status = 409;
+        throw error;
+      }
+
       const before = await observeShortCode(candidate);
       if (before.found) {
         await clearCreateIntent(candidate);
@@ -95,8 +108,6 @@ export async function createShortUrl({ longUrl, customSlug, title }) {
         method: 'POST',
         body: JSON.stringify({ longUrl, customSlug: candidate, ...(title ? { title } : {}), findIfExists: false, crawlable: false, forwardQuery: true })
       });
-      // Keep the intent until QH8Z ownership is visible in PostgreSQL. The
-      // reconciliation worker removes claimed intents or cleans true orphans.
       return { ...created, shortCode: created?.shortCode || candidate };
     } catch (error) {
       if (error?.status) {
@@ -110,10 +121,6 @@ export async function createShortUrl({ longUrl, customSlug, title }) {
         throw error;
       }
 
-      // A network timeout after POST is ambiguous. Resolve it by querying the
-      // known candidate slug. If Shlink committed the requested target, return
-      // that result; if it definitely did not, clear the intent. If even the
-      // lookup fails, retain the durable intent for orphan reconciliation.
       try {
         const after = await observeShortCode(candidate);
         if (after.found && sameDestination(after.value?.longUrl, longUrl)) {
