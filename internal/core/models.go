@@ -11,19 +11,19 @@ var (
 )
 
 type Link struct {
-	Slug string `json:"slug"`
-	URL string `json:"url"`
+	Slug      string    `json:"slug"`
+	URL       string    `json:"url"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
 type Visit struct {
-	Slug string `json:"-"`
+	Slug      string    `json:"-"`
 	VisitedAt time.Time `json:"visitedAt"`
-	Referer string `json:"referer,omitempty"`
-	UserAgent string `json:"userAgent,omitempty"`
+	Referer   string    `json:"referer,omitempty"`
+	UserAgent string    `json:"userAgent,omitempty"`
 }
 
 type Stats struct {
-	TotalVisits int64 `json:"totalVisits"`
-	Recent []Visit `json:"recentVisits"`
+	TotalVisits int64   `json:"totalVisits"`
+	Recent      []Visit `json:"recentVisits"`
 }
