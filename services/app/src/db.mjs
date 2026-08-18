@@ -207,6 +207,19 @@ export async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS audit_events_created_idx ON audit_events(created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS stripe_subscriptions (
+      subscription_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      customer_id TEXT,
+      status TEXT NOT NULL,
+      price_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+      qualifies_pro BOOLEAN NOT NULL DEFAULT FALSE,
+      event_created_at BIGINT NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS stripe_subscriptions_user_idx ON stripe_subscriptions(user_id, qualifies_pro);
+    CREATE INDEX IF NOT EXISTS stripe_subscriptions_customer_idx ON stripe_subscriptions(customer_id);
+
     CREATE TABLE IF NOT EXISTS stripe_events (
       event_id TEXT PRIMARY KEY,
       event_type TEXT NOT NULL,
