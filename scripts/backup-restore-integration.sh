@@ -29,6 +29,19 @@ done
 [[ "$ready" == "1" ]]
 assert_db_isolation
 
+# Simulate an ambiguous create handoff: Shlink has a live redirect, QH8Z has no
+# ownership row, but the pre-mutation create intent survived. Reconciliation
+# must remove the unclaimed redirect and the journal entry.
+curl -fsS -X POST http://localhost:8080/rest/v3/short-urls \
+  -H "X-Api-Key: ${SHLINK_API_KEY}" -H 'content-type: application/json' \
+  -d '{"longUrl":"https://example.com/orphan","customSlug":"orphan-ci"}' >/tmp/qh8z-orphan-link.json
+docker compose exec -T db psql -U postgres -d qh8z -v ON_ERROR_STOP=1 -c "INSERT INTO shlink_create_intents(short_code,long_url,created_at) VALUES('orphan-ci','https://example.com/orphan',NOW()-INTERVAL '10 minutes');" >/dev/null
+docker compose exec -T app node --input-type=module -e "import { reconcileCreateIntents } from './src/consistency.mjs'; import { pool } from './src/db.mjs'; await reconcileCreateIntents({orphanAfterMs:0,batch:100}); await pool.end();"
+orphan_status=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/rest/v3/short-urls/orphan-ci -H "X-Api-Key: ${SHLINK_API_KEY}")
+[[ "$orphan_status" == "404" ]]
+intent_count=$(docker compose exec -T db psql -U postgres -d qh8z -Atc "SELECT COUNT(*) FROM shlink_create_intents WHERE short_code='orphan-ci';")
+[[ "$intent_count" == "0" ]]
+
 # Create durable sentinel data in each database through the surfaces they own.
 docker compose exec -T db psql -U postgres -d qh8z -v ON_ERROR_STOP=1 -c "INSERT INTO audit_events(event_type,target_id) VALUES('backup.restore.sentinel','ci-restore');" >/dev/null
 curl -fsS -X POST http://localhost:8080/rest/v3/short-urls \
@@ -74,4 +87,4 @@ count=$(docker compose exec -T db psql -U postgres -d qh8z -Atc "SELECT COUNT(*)
 restored_redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/backup-ci)
 [[ "$restored_redirect" == "https://example.com/backup-restored" ]]
 
-echo 'QH8Z backup/restore drill passed with graceful app shutdown, database role isolation, and HTTPS recovery.'
+echo 'QH8Z backup/restore drill passed with orphan cleanup, graceful app shutdown, database role isolation, and HTTPS recovery.'
