@@ -29,11 +29,12 @@ func TestPostgresCommercialLifecycle(t *testing.T) {
 	workspaceID := "ws_commercial_" + suffix
 	email := "commercial-" + suffix + "@example.com"
 	reg := core.Registration{
-		User:       core.User{ID: userID, Email: email, PasswordHash: "test-hash", EmailVerifiedAt: &now, CreatedAt: now},
-		Workspace:  core.Workspace{ID: workspaceID, Name: "Commercial Workspace", CreatedAt: now},
-		Membership: core.Membership{WorkspaceID: workspaceID, UserID: userID, Role: core.RoleOwner, CreatedAt: now},
-		Session:    core.Session{TokenHash: testHash("commercial-session-" + suffix), UserID: userID, CreatedAt: now, ExpiresAt: now.Add(time.Hour), LastSeenAt: now},
-		Audit:      []core.AuditEntry{{WorkspaceID: workspaceID, ActorUserID: userID, Action: "workspace.created", ResourceType: "workspace", ResourceID: workspaceID, CreatedAt: now}},
+		User:         core.User{ID: userID, Email: email, PasswordHash: "test-hash", EmailVerifiedAt: &now, CreatedAt: now},
+		Workspace:    core.Workspace{ID: workspaceID, Name: "Commercial Workspace", CreatedAt: now},
+		Membership:   core.Membership{WorkspaceID: workspaceID, UserID: userID, Role: core.RoleOwner, CreatedAt: now},
+		Verification: core.EmailVerification{TokenHash: testHash("commercial-verification-" + suffix), UserID: userID, CreatedAt: now, ExpiresAt: now.Add(time.Hour), UsedAt: &now},
+		Session:      core.Session{TokenHash: testHash("commercial-session-" + suffix), UserID: userID, CreatedAt: now, ExpiresAt: now.Add(time.Hour), LastSeenAt: now},
+		Audit:        []core.AuditEntry{{WorkspaceID: workspaceID, ActorUserID: userID, Action: "workspace.created", ResourceType: "workspace", ResourceID: workspaceID, CreatedAt: now}},
 	}
 	if err := s.Register(ctx, reg); err != nil {
 		t.Fatalf("register commercial workspace: %v", err)
