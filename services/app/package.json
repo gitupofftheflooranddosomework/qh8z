@@ -6,7 +6,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "node src/entrypoint.mjs",
-    "check": "node --check src/entrypoint.mjs && node --check src/server.mjs && node --check src/bootstrap-admin.mjs && node --check src/auth.mjs && node --check src/db.mjs && node --check src/shlink.mjs && node --check src/billing.mjs && node --check src/reputation.mjs && node --check src/validation.mjs && node --check src/tokens.mjs && node --check src/mailer.mjs && node --check src/mfa.mjs && node --check src/turnstile.mjs && node --check src/destination.mjs && node --check public/app.js && node --check public/auth-public.js && node --check public/report.js",
+    "check": "node --check src/entrypoint.mjs && node --check src/server.mjs && node --check src/bootstrap-admin.mjs && node --check src/auth.mjs && node --check src/db.mjs && node --check src/shlink.mjs && node --check src/billing.mjs && node --check src/reputation.mjs && node --check src/consistency.mjs && node --check src/validation.mjs && node --check src/tokens.mjs && node --check src/mailer.mjs && node --check src/mfa.mjs && node --check src/turnstile.mjs && node --check src/destination.mjs && node --check public/app.js && node --check public/auth-public.js && node --check public/report.js",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
