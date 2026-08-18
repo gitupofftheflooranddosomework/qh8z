@@ -89,8 +89,10 @@ async function runReputationPass() {
   try {
     await recheckDueLinks();
     const consistency = await reconcileDueLinks();
-    if (consistency.repaired || consistency.disabled || consistency.failed) {
-      console.log(JSON.stringify({ level: consistency.failed ? 'warn' : 'info', event: 'consistency.pass', ...consistency }));
+    const changed = consistency.repaired || consistency.disabled || consistency.orphanDeleted || consistency.staleIntentsCleared || consistency.intentsClaimed;
+    const failed = consistency.failed || consistency.orphanFailures;
+    if (changed || failed) {
+      console.log(JSON.stringify({ level: failed ? 'warn' : 'info', event: 'consistency.pass', ...consistency }));
     }
   } finally {
     reputationPassRunning = false;
