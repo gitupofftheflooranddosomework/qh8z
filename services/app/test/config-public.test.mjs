@@ -22,7 +22,12 @@ const base = {
   SHLINK_API_KEY: 's'.repeat(32),
   ADMIN_EMAIL: 'admin@qh8z.test',
   ADMIN_BOOTSTRAP_SECRET: 'b'.repeat(32),
+  SESSION_TTL_DAYS: '30',
   ADMIN_SESSION_HOURS: '12',
+  DATA_RETENTION_DAYS: '365',
+  REPUTATION_RECHECK_HOURS: '24',
+  REPUTATION_RECHECK_BATCH: '25',
+  REPUTATION_WORKER_MINUTES: '15',
   MFA_ENCRYPTION_KEY: 'ab'.repeat(32),
   TERMS_VERSION: '2026-08-17',
   SUPPORT_EMAIL: 'support@qh8z.test',
@@ -47,4 +52,13 @@ test('public security mode stays valid while new signup is temporarily closed', 
 test('public launch refuses missing Turnstile', () => assert.ok(problems({ TURNSTILE_SECRET_KEY: '' }).some(x => x.includes('Turnstile'))));
 test('public launch refuses placeholder admin identity', () => assert.ok(problems({ ADMIN_EMAIL: 'admin@example.example' }).some(x => x.includes('ADMIN_EMAIL'))));
 test('public launch refuses insecure cookie mode', () => assert.ok(problems({ COOKIE_SECURE: 'false' }).some(x => x.includes('COOKIE_SECURE'))));
-test('public launch rejects overly long admin sessions', () => assert.ok(problems({ ADMIN_SESSION_HOURS: '48' }).some(x => x.includes('ADMIN_SESSION_HOURS'))));
+test('public launch rejects invalid user and admin session lifetimes', () => {
+  assert.ok(problems({ SESSION_TTL_DAYS: '0' }).some(x => x.includes('SESSION_TTL_DAYS')));
+  assert.ok(problems({ ADMIN_SESSION_HOURS: '48' }).some(x => x.includes('ADMIN_SESSION_HOURS')));
+});
+test('public launch cannot silently disable recurring reputation scanning', () => {
+  assert.ok(problems({ REPUTATION_RECHECK_HOURS: '0' }).some(x => x.includes('REPUTATION_RECHECK_HOURS')));
+  assert.ok(problems({ REPUTATION_RECHECK_BATCH: '0' }).some(x => x.includes('REPUTATION_RECHECK_BATCH')));
+  assert.ok(problems({ REPUTATION_WORKER_MINUTES: '0' }).some(x => x.includes('REPUTATION_WORKER_MINUTES')));
+});
+test('public launch rejects unsafe retention bounds', () => assert.ok(problems({ DATA_RETENTION_DAYS: '1' }).some(x => x.includes('DATA_RETENTION_DAYS'))));
