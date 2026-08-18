@@ -108,9 +108,16 @@ export async function migrate() {
     ALTER TABLE links ADD COLUMN IF NOT EXISTS reputation_status TEXT NOT NULL DEFAULT 'unknown';
     ALTER TABLE links ADD COLUMN IF NOT EXISTS consistency_checked_at TIMESTAMPTZ;
     ALTER TABLE links ADD COLUMN IF NOT EXISTS consistency_mismatch_at TIMESTAMPTZ;
+    ALTER TABLE links ADD COLUMN IF NOT EXISTS notes TEXT;
+    ALTER TABLE links ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE links ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+    ALTER TABLE links ADD COLUMN IF NOT EXISTS max_visits INTEGER;
+    ALTER TABLE links ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
     CREATE INDEX IF NOT EXISTS links_user_id_created_idx ON links(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS links_user_status_created_idx ON links(user_id, disabled_at, archived_at, created_at DESC);
     CREATE INDEX IF NOT EXISTS links_reputation_due_idx ON links(reputation_checked_at) WHERE disabled_at IS NULL;
     CREATE INDEX IF NOT EXISTS links_consistency_due_idx ON links(consistency_checked_at) WHERE disabled_at IS NULL;
+    CREATE INDEX IF NOT EXISTS links_tags_gin_idx ON links USING GIN(tags);
 
     CREATE OR REPLACE FUNCTION qh8z_enforce_link_plan_limit() RETURNS TRIGGER AS $$
     DECLARE
@@ -125,7 +132,7 @@ export async function migrate() {
       PERFORM pg_advisory_xact_lock(hashtext(NEW.user_id), hashtext('qh8z-link-plan-limit'));
       SELECT plan INTO account_plan FROM users WHERE id=NEW.user_id;
       account_limit := CASE account_plan WHEN 'pro' THEN 5000 ELSE 25 END;
-      SELECT COUNT(*)::int INTO active_count FROM links WHERE user_id=NEW.user_id AND disabled_at IS NULL;
+      SELECT COUNT(*)::int INTO active_count FROM links WHERE user_id=NEW.user_id AND disabled_at IS NULL AND id IS DISTINCT FROM NEW.id;
 
       IF active_count >= account_limit THEN
         RAISE EXCEPTION 'link plan limit reached'
@@ -136,7 +143,7 @@ export async function migrate() {
     $$ LANGUAGE plpgsql;
     DROP TRIGGER IF EXISTS qh8z_enforce_link_plan_limit_trigger ON links;
     CREATE TRIGGER qh8z_enforce_link_plan_limit_trigger
-      BEFORE INSERT ON links
+      BEFORE INSERT OR UPDATE OF disabled_at ON links
       FOR EACH ROW EXECUTE FUNCTION qh8z_enforce_link_plan_limit();
 
     CREATE TABLE IF NOT EXISTS shlink_create_intents (
@@ -145,6 +152,21 @@ export async function migrate() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS shlink_create_intents_created_idx ON shlink_create_intents(created_at);
+
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      token_prefix TEXT NOT NULL,
+      scopes JSONB NOT NULL DEFAULT '["links:read","links:write"]'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_used_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ,
+      revoked_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS api_tokens_user_idx ON api_tokens(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS api_tokens_active_hash_idx ON api_tokens(token_hash) WHERE revoked_at IS NULL;
 
     CREATE TABLE IF NOT EXISTS abuse_reports (
       id TEXT PRIMARY KEY,
@@ -196,6 +218,7 @@ export async function cleanupExpiredSessions() {
 
 export async function cleanupExpiredAuthTokens() {
   await pool.query("DELETE FROM auth_tokens WHERE expires_at < NOW() OR (used_at IS NOT NULL AND used_at < NOW() - INTERVAL '1 day')");
+  await pool.query("DELETE FROM api_tokens WHERE (expires_at IS NOT NULL AND expires_at < NOW() - INTERVAL '30 days') OR (revoked_at IS NOT NULL AND revoked_at < NOW() - INTERVAL '30 days')");
 }
 
 export async function cleanupRetainedOperationalData() {
