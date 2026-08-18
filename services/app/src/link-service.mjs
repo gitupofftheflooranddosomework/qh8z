@@ -3,7 +3,7 @@ import { config, plans } from './config.mjs';
 import { pool, audit } from './db.mjs';
 import { createShortUrl, editShortUrl, deleteShortUrl, getShortUrl } from './shlink.mjs';
 import { checkUrlReputation } from './reputation.mjs';
-import { assertDestinationAllowed, assertResolvedDestinationAllowed } from './destination.mjs';
+import { assertDestinationAllowed } from './destination.mjs';
 import { normalizeHttpUrl, normalizeSlug, cleanTitle } from './validation.mjs';
 
 const ADVANCED_FEATURE_ERROR = 'Expiry, max-visit controls, bulk creation, and developer API access require QH8Z Pro.';
@@ -75,7 +75,6 @@ export function editConsumesPlanSlot(existing, nextExpiresAt, now = Date.now()) 
 
 export async function validateDestination(longUrl, userId, targetId = null) {
   assertDestinationAllowed(longUrl);
-  if (config.publicLaunchMode) await assertResolvedDestinationAllowed(longUrl);
   const reputation = await checkUrlReputation(longUrl);
   if (reputation.threats.length) {
     await audit(userId, 'link.blocked_unsafe', targetId, { hostname: new URL(longUrl).hostname, threats: reputation.threats });
@@ -175,13 +174,28 @@ export async function updateLink(user, link, input = {}) {
   if (editConsumesPlanSlot(link, fields.expiresAt)) await friendlyPlanLimit(user);
   await validateDestination(fields.longUrl, user.id, link.id);
   await editShortUrl(link.short_code, { longUrl: fields.longUrl, title: fields.title, tags: fields.tags, validUntil: fields.expiresAt, maxVisits: fields.maxVisits });
-  const { rows } = await pool.query(
-    `UPDATE links SET long_url=$1,title=$2,notes=$3,tags=$4::jsonb,expires_at=$5,max_visits=$6,updated_at=NOW()
-     WHERE id=$7 RETURNING *`,
-    [fields.longUrl, fields.title, fields.notes, JSON.stringify(fields.tags), fields.expiresAt, fields.maxVisits, link.id]
-  );
-  await audit(user.id, 'link.updated', link.id, { shortCode: link.short_code });
-  return publicLink(rows[0]);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE links SET long_url=$1,title=$2,notes=$3,tags=$4::jsonb,expires_at=$5,max_visits=$6,updated_at=NOW()
+       WHERE id=$7 RETURNING *`,
+      [fields.longUrl, fields.title, fields.notes, JSON.stringify(fields.tags), fields.expiresAt, fields.maxVisits, link.id]
+    );
+    await audit(user.id, 'link.updated', link.id, { shortCode: link.short_code });
+    return publicLink(rows[0]);
+  } catch (error) {
+    try {
+      await editShortUrl(link.short_code, {
+        longUrl: link.long_url,
+        title: link.title,
+        tags: Array.isArray(link.tags) ? link.tags : [],
+        validUntil: link.expires_at,
+        maxVisits: link.max_visits,
+      });
+    } catch (rollbackError) {
+      console.error(JSON.stringify({ level: 'error', event: 'link.edit_compensation_failed', linkId: link.id, shortCode: link.short_code, message: rollbackError.message }));
+    }
+    throw error;
+  }
 }
 
 export async function disableLink(user, link, eventType = 'link.disabled') {
@@ -271,8 +285,8 @@ export async function getLinkStats(link) {
     visits: upstream.visitsSummary || { total: 0, nonBots: 0, bots: 0 },
     title: upstream.title || link.title,
     longUrl: upstream.longUrl || link.long_url,
-    maxVisits: upstream.maxVisits ?? link.max_visits,
-    validUntil: upstream.validUntil ?? link.expires_at,
+    maxVisits: upstream.meta?.maxVisits ?? upstream.maxVisits ?? link.max_visits,
+    validUntil: upstream.meta?.validUntil ?? upstream.validUntil ?? link.expires_at,
     tags: upstream.tags || link.tags || [],
   };
 }
