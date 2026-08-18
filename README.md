@@ -6,29 +6,25 @@ Rather than literally merging Kutt's JavaScript codebase with Shlink's PHP codeb
 
 ## Current milestone
 
-The qh8z core now includes:
+The qh8z production core now includes:
 
-- JSON API for creating short links
-- Generated 7-character slugs and optional custom slugs
-- HTTP redirects
-- PostgreSQL-backed durable links
-- Durable visit events and counters
-- Per-link stats endpoint
-- Embedded, idempotent database migrations
-- Readiness and liveness endpoints
-- Safe development-only in-memory storage
-- Production guard that refuses in-memory storage
-- Structured JSON logging and graceful shutdown
-- Minimal browser UI
-- URL validation and reserved slugs
-- Security response headers and HTTP timeouts
+- PostgreSQL-backed durable short links and visit analytics
+- embedded, idempotent database migrations
+- account registration/login/logout
+- verified-email workflow with SMTP production delivery
+- workspace ownership with owner/admin/member roles
+- workspace-owned links and analytics authorization
+- scoped API keys whose plaintext secrets are never stored
+- durable audit log
+- secure session cookies and hashed session/verification secrets
+- readiness/liveness endpoints
+- structured JSON logging and graceful shutdown
+- production guards that refuse in-memory storage or log-only email
 - Docker, Compose, and PostgreSQL-backed GitHub Actions CI
 
-> **Development status:** durable storage is in place, but authentication, abuse controls, custom domains, richer analytics, billing, production deployment, legal policies, and the remaining launch gates are still required before public launch.
+> **Launch status:** durable data and identity/ownership are implemented. Abuse controls, full link management/custom domains, richer analytics, billing, production deployment/monitoring, legal policies, and final security/load testing remain launch blockers tracked in GitHub Issue #3.
 
 ## Run locally with PostgreSQL
-
-Requires Docker Compose, or Go 1.25+ plus PostgreSQL.
 
 ```bash
 docker compose up --build
@@ -39,57 +35,69 @@ Open `http://localhost:8080`.
 For a local in-memory development process:
 
 ```bash
-QH8Z_STORAGE=memory go run ./cmd/qh8z
+QH8Z_STORAGE=memory QH8Z_EMAIL_MODE=log go run ./cmd/qh8z
 ```
 
-Environment variables:
+### Core environment variables
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `8080` | HTTP listen port |
-| `QH8Z_BASE_URL` | `http://localhost:$PORT` | Public base URL returned for short links |
-| `QH8Z_ENV` | `development` | Set to `production` to enable production safety checks |
+| `QH8Z_BASE_URL` | `http://localhost:$PORT` | Public base URL and verification-link origin |
+| `QH8Z_ENV` | `development` | `production` enables production startup requirements |
 | `QH8Z_STORAGE` | `memory` | `memory` or `postgres`; production requires `postgres` |
-| `DATABASE_URL` | none | PostgreSQL connection string when storage is `postgres` |
+| `DATABASE_URL` | none | PostgreSQL connection string |
+| `QH8Z_EMAIL_MODE` | `log` | `log` or `smtp`; production requires `smtp` |
 
-Database migrations run automatically on PostgreSQL startup and are recorded in `schema_migrations`.
+SMTP settings are documented in [`docs/IDENTITY.md`](docs/IDENTITY.md).
 
-## API
+## Authentication API
 
-Create a link:
+Register:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/register \
+  -H 'content-type: application/json' \
+  -d '{"email":"owner@example.com","password":"correct horse battery staple","workspaceName":"My Team"}'
+```
+
+After email verification, session-cookie requests can create workspace-owned links. Non-browser clients can use scoped `qh8z_sk_...` API keys.
+
+Use `X-QH8Z-Workspace` to choose among multiple workspaces.
+
+## Link API
+
+Create a link with an authenticated, verified session or an API key with `links:write`:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/links \
   -H 'content-type: application/json' \
+  -H 'Authorization: Bearer qh8z_sk_REDACTED' \
   -d '{"url":"https://example.com/some/long/path","customSlug":"example"}'
 ```
 
-Read it:
+Read a managed link with `links:read`:
 
 ```bash
-curl http://localhost:8080/api/v1/links/example
+curl -H 'Authorization: Bearer qh8z_sk_REDACTED' http://localhost:8080/api/v1/links/example
 ```
 
-Read stats:
+Read stats with `analytics:read`:
 
 ```bash
-curl http://localhost:8080/api/v1/links/example/stats
+curl -H 'Authorization: Bearer qh8z_sk_REDACTED' http://localhost:8080/api/v1/links/example/stats
 ```
 
-Redirect:
+The public redirect remains:
 
 ```text
 http://localhost:8080/example
 ```
 
-Health endpoints:
+## Operations and architecture
 
-- `/healthz` confirms the process is alive.
-- `/readyz` confirms the configured storage is reachable.
-
-## Operations
-
-- [`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md) — manual backup and recovery procedure.
+- [`docs/IDENTITY.md`](docs/IDENTITY.md) — accounts, workspaces, verification, API keys, and audit behavior.
+- [`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md) — PostgreSQL backup and recovery procedure.
 - [`docs/CACHING.md`](docs/CACHING.md) — Redis-compatible redirect caching strategy.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — product/launch roadmap.
 - GitHub Issue #3 is the authoritative public-launch gate.

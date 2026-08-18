@@ -21,12 +21,12 @@
 
 ## Milestone 3 — accounts and ownership
 
-- [ ] Accounts and login
-- [ ] Verified email
-- [ ] Workspaces / organizations
-- [ ] Memberships and roles
-- [ ] Scoped API keys
-- [ ] Audit log
+- [x] Accounts and login
+- [x] Verified email
+- [x] Workspaces / organizations
+- [x] Memberships and roles
+- [x] Scoped API keys
+- [x] Audit log
 
 ## Milestone 4 — serious link management
 
