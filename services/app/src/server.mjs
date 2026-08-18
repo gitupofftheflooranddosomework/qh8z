@@ -9,15 +9,18 @@ import QRCode from 'qrcode';
 import { config, plans, startupProblems } from './config.mjs';
 import { pool, migrate, audit, cleanupExpiredSessions, cleanupExpiredAuthTokens, cleanupRetainedOperationalData } from './db.mjs';
 import { createSession, destroySession, hashPassword, verifyPassword, loadUser, requireUser, requireActiveUser, requireEligibleUser, requireAdmin, hasSessionCookie } from './auth.mjs';
-import { createShortUrl, getShortUrl, editShortUrl, deleteShortUrl, getVisits, checkShlinkHealth } from './shlink.mjs';
+import { getVisits, checkShlinkHealth, deleteShortUrl } from './shlink.mjs';
 import { billingEnabled, createCheckout, createPortal, handleStripeWebhook, cancelBillingForUser } from './billing.mjs';
-import { checkUrlReputation } from './reputation.mjs';
 import { verifyTurnstile } from './turnstile.mjs';
 import { createAuthToken, getAuthTokenUser, consumeAuthToken, revokeAuthTokens } from './tokens.mjs';
 import { mailerConfigured, mailerHealthy, sendVerificationEmail, sendPasswordResetEmail } from './mailer.mjs';
-import { assertDestinationAllowed } from './destination.mjs';
 import { generateMfaSetup, generateRecoveryCodes, verifyTotp, verifyMfaUser, decryptMfaSecret } from './mfa.mjs';
-import { normalizeEmail, validEmail, validPassword, normalizeHttpUrl, normalizeSlug, cleanTitle, accepted, RESERVED_SLUGS } from './validation.mjs';
+import { normalizeEmail, validEmail, validPassword, accepted } from './validation.mjs';
+import { createApiToken, listApiTokens, revokeApiToken, authenticateApiToken, requireApiScope } from './api-tokens.mjs';
+import {
+  requireProFeature, createLink, getOwnedLink, listLinks, updateLink, disableLink, restoreLink,
+  setArchived, bulkCreateLinks, linksToCsv, getLinkStats, publicLink,
+} from './link-service.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, '../public');
@@ -59,6 +62,7 @@ const signupLimiter = rateLimit({ windowMs: 60 * 60_000, limit: 8, standardHeade
 const recoveryLimiter = rateLimit({ windowMs: 30 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false });
 const writeLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 const reportLimiter = rateLimit({ windowMs: 60 * 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
+const apiLimiter = rateLimit({ windowMs: 60_000, limit: 180, standardHeaders: 'draft-8', legacyHeaders: false });
 
 app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res, next) => {
   try {
@@ -67,7 +71,7 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: 
   } catch (error) { next(error); }
 });
 
-app.use(express.json({ limit: '64kb' }));
+app.use(express.json({ limit: '256kb' }));
 app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 app.use(loadUser);
 
@@ -114,6 +118,24 @@ async function requireHuman(req, action) {
   return verifyTurnstile(req.body?.turnstileToken, action, clientIp(req));
 }
 
+function mapProductError(error, res, next) {
+  if (error?.code === 'unsafe_destination') return res.status(422).json({ error: error.code, message: error.message, threats: error.threats || [] });
+  if (['destination_resolution_unavailable'].includes(error?.code)) return res.status(503).json({ error: error.code, message: error.message });
+  if (error?.code === 'plan_limit_reached') return res.status(402).json({ error: error.code, message: error.message, limit: error.limit });
+  if (error?.code === 'feature_requires_pro') return res.status(402).json({ error: error.code, message: error.message });
+  if (Number(error?.status) >= 400 && Number(error?.status) < 500) return res.status(Number(error.status)).json({ error: error.code || 'request_rejected', message: error.message });
+  next(error);
+}
+
+async function ownedLink(req, res, next) {
+  try {
+    const link = await getOwnedLink(req.user.id, req.params.id);
+    if (!link) return res.status(404).json({ error: 'link_not_found' });
+    req.link = link;
+    next();
+  } catch (error) { next(error); }
+}
+
 app.get('/healthz', (_req, res) => res.json({ ok: true, service: 'qh8z' }));
 app.get('/readyz', async (_req, res) => {
   const checks = { database: false, shlink: false, mailer: false, configuration: startupProblems().length === 0, adminMfa: !config.publicLaunchMode };
@@ -137,10 +159,12 @@ app.get('/api/config', (_req, res) => {
     billingEnabled: billingEnabled(), supportEmail: config.supportEmail, abuseEmail: config.abuseEmail,
     plans, turnstileSiteKey: config.turnstileSiteKey || null, turnstileRequired: config.turnstileRequired,
     emailVerificationRequired: config.emailVerificationRequired, termsVersion: config.termsVersion,
+    features: { tags: true, notes: true, restore: true, archive: true, bulk: true, apiTokens: true, expiry: true, maxVisits: true },
   });
 });
 app.get('/api/me', (req, res) => res.json({ user: safeUser(req.user) }));
 
+// Authentication and account lifecycle ----------------------------------------------------------
 app.post('/api/auth/register', signupLimiter, async (req, res, next) => {
   try {
     if (!config.allowSignup) return res.status(403).json({ error: 'signup_disabled' });
@@ -152,15 +176,13 @@ app.post('/api/auth/register', signupLimiter, async (req, res, next) => {
     if (!name) return res.status(400).json({ error: 'name_required' });
     if (!validEmail(email)) return res.status(400).json({ error: 'invalid_email' });
     if (!validPassword(password)) return res.status(400).json({ error: 'weak_password', message: 'Use 10-72 UTF-8 bytes.' });
+    if (config.adminEmail && email === config.adminEmail) return res.status(403).json({ error: 'admin_email_reserved', message: 'This email is reserved for the locally bootstrapped QH8Z administrator.' });
     const id = crypto.randomUUID();
     const passwordHash = await hashPassword(password);
-    const isAdminEmail = Boolean(config.adminEmail && email === config.adminEmail);
-    if (isAdminEmail) return res.status(403).json({ error: 'admin_email_reserved', message: 'This email is reserved for the locally bootstrapped QH8Z administrator.' });
     const verifiedNow = !config.emailVerificationRequired;
     const result = await pool.query(
       `INSERT INTO users(id,email,password_hash,name,is_admin,email_verified_at,terms_accepted_at,terms_version)
-       VALUES($1,$2,$3,$4,FALSE,CASE WHEN $5 THEN NOW() ELSE NULL END,NOW(),$6)
-       RETURNING *`,
+       VALUES($1,$2,$3,$4,FALSE,CASE WHEN $5 THEN NOW() ELSE NULL END,NOW(),$6) RETURNING *`,
       [id, email, passwordHash, name, verifiedNow, config.termsVersion]
     );
     await createSession(id, res);
@@ -172,10 +194,7 @@ app.post('/api/auth/register', signupLimiter, async (req, res, next) => {
       try { await sendVerificationEmail(result.rows[0], verificationToken); verificationSent = true; }
       catch (error) { await audit(id, 'auth.verification_email_failed', id, { message: error.message }); }
     }
-    res.status(201).json({
-      user: safeUser(result.rows[0]), verificationRequired: !verifiedNow, verificationSent,
-      ...(config.authTokenExposeInDev && verificationToken ? { debugVerificationToken: verificationToken } : {}),
-    });
+    res.status(201).json({ user: safeUser(result.rows[0]), verificationRequired: !verifiedNow, verificationSent, ...(config.authTokenExposeInDev && verificationToken ? { debugVerificationToken: verificationToken } : {}) });
   } catch (error) {
     if (error?.code === '23505') return res.status(409).json({ error: 'email_already_registered' });
     next(error);
@@ -197,9 +216,8 @@ app.post('/api/auth/login', loginLimiter, async (req, res, next) => {
     }
     await createSession(user.id, res);
     await pool.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]);
-    user.last_login_at = new Date();
     await audit(user.id, 'auth.login', user.id);
-    res.json({ user: safeUser(user) });
+    res.json({ user: safeUser({ ...user, last_login_at: new Date() }) });
   } catch (error) { next(error); }
 });
 
@@ -216,9 +234,8 @@ app.post('/api/auth/mfa', loginLimiter, async (req, res, next) => {
     if (!consumed) return res.status(400).json({ error: 'invalid_or_expired_challenge' });
     await createSession(user.id, res);
     await pool.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]);
-    user.last_login_at = new Date();
     await audit(user.id, 'auth.mfa_login', user.id);
-    res.json({ user: safeUser(user) });
+    res.json({ user: safeUser({ ...user, last_login_at: new Date() }) });
   } catch (error) { next(error); }
 });
 
@@ -276,6 +293,15 @@ app.post('/api/auth/reset-password', recoveryLimiter, async (req, res, next) => 
   } catch (error) { next(error); }
 });
 
+app.post('/api/auth/logout', requireUser, async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    await destroySession(req, res);
+    await audit(userId, 'auth.logout', userId);
+    res.status(204).end();
+  } catch (error) { next(error); }
+});
+
 app.post('/api/account/accept-terms', requireActiveUser, writeLimiter, async (req, res, next) => {
   try {
     if (!accepted(req.body.acceptTerms)) return res.status(400).json({ error: 'terms_required' });
@@ -287,9 +313,8 @@ app.post('/api/account/accept-terms', requireActiveUser, writeLimiter, async (re
 
 app.post('/api/account/mfa/setup', requireActiveUser, loginLimiter, async (req, res, next) => {
   try {
-    const password = String(req.body.password || '');
     const { rows } = await pool.query('SELECT password_hash,email,mfa_enabled_at FROM users WHERE id=$1', [req.user.id]);
-    if (!rows[0] || !(await verifyPassword(password, rows[0].password_hash))) return res.status(401).json({ error: 'invalid_password' });
+    if (!rows[0] || !(await verifyPassword(String(req.body.password || ''), rows[0].password_hash))) return res.status(401).json({ error: 'invalid_password' });
     if (rows[0].mfa_enabled_at) return res.status(409).json({ error: 'mfa_already_enabled', message: 'Disable existing MFA before replacing it.' });
     const setup = generateMfaSetup(rows[0].email);
     await pool.query('UPDATE users SET mfa_pending_secret_enc=$1,mfa_pending_created_at=NOW() WHERE id=$2', [setup.encryptedSecret, req.user.id]);
@@ -302,9 +327,7 @@ app.post('/api/account/mfa/confirm', requireActiveUser, loginLimiter, async (req
   try {
     const { rows } = await pool.query('SELECT mfa_pending_secret_enc,mfa_pending_created_at FROM users WHERE id=$1', [req.user.id]);
     const pending = rows[0];
-    if (!pending?.mfa_pending_secret_enc || !pending.mfa_pending_created_at || Date.now() - new Date(pending.mfa_pending_created_at).getTime() > 15 * 60_000) {
-      return res.status(400).json({ error: 'mfa_setup_expired', message: 'Start MFA setup again.' });
-    }
+    if (!pending?.mfa_pending_secret_enc || !pending.mfa_pending_created_at || Date.now() - new Date(pending.mfa_pending_created_at).getTime() > 15 * 60_000) return res.status(400).json({ error: 'mfa_setup_expired', message: 'Start MFA setup again.' });
     const secret = decryptMfaSecret(pending.mfa_pending_secret_enc);
     if (!verifyTotp(secret, req.body.code)) return res.status(400).json({ error: 'invalid_mfa_code' });
     const recovery = generateRecoveryCodes();
@@ -329,11 +352,8 @@ app.post('/api/account/mfa/disable', requireActiveUser, loginLimiter, async (req
 
 app.post('/api/account/password', requireUser, loginLimiter, async (req, res, next) => {
   try {
-    const currentPassword = String(req.body.currentPassword || '');
     const newPassword = String(req.body.newPassword || '');
     if (!validPassword(newPassword)) return res.status(400).json({ error: 'weak_password', message: 'Use 10-72 UTF-8 bytes.' });
-    const { rows } = await pool.query('SELECT password_hash FROM users WHERE id=$1', [req.user.id]);
-    if (!rows[0] || !(await verifyPassword(currentPassword, rows[0].password_hash))) return res.status(401).json({ error: 'invalid_current_password' });
     const passwordHash = await hashPassword(newPassword);
     await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [passwordHash, req.user.id]);
     await pool.query('DELETE FROM sessions WHERE user_id=$1', [req.user.id]);
@@ -346,17 +366,16 @@ app.post('/api/account/password', requireUser, loginLimiter, async (req, res, ne
 
 app.get('/api/account/export', requireUser, async (req, res, next) => {
   try {
-    const links = await pool.query('SELECT short_code,long_url,title,custom_slug,created_at,updated_at,disabled_at FROM links WHERE user_id=$1 ORDER BY created_at DESC', [req.user.id]);
+    const links = await pool.query('SELECT short_code,long_url,title,custom_slug,notes,tags,expires_at,max_visits,created_at,updated_at,disabled_at,archived_at FROM links WHERE user_id=$1 ORDER BY created_at DESC', [req.user.id]);
+    const tokens = await listApiTokens(req.user.id);
     res.setHeader('Content-Disposition', 'attachment; filename="qh8z-export.json"');
-    res.json({ exportedAt: new Date().toISOString(), account: safeUser(req.user), links: links.rows });
+    res.json({ exportedAt: new Date().toISOString(), account: safeUser(req.user), links: links.rows.map(publicLink), apiTokens: tokens });
   } catch (error) { next(error); }
 });
 
 app.delete('/api/account', requireUser, loginLimiter, async (req, res, next) => {
   try {
-    const password = String(req.body.password || '');
     const userRow = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id]);
-    if (!userRow.rows[0] || !(await verifyPassword(password, userRow.rows[0].password_hash))) return res.status(401).json({ error: 'invalid_password' });
     const links = await pool.query('SELECT short_code FROM links WHERE user_id=$1 AND disabled_at IS NULL', [req.user.id]);
     for (const link of links.rows) {
       try { await deleteShortUrl(link.short_code); } catch (error) { if (error?.status !== 404) throw error; }
@@ -370,127 +389,114 @@ app.delete('/api/account', requireUser, loginLimiter, async (req, res, next) => 
   } catch (error) { next(error); }
 });
 
-app.post('/api/auth/logout', requireUser, async (req, res, next) => {
+// Developer tokens --------------------------------------------------------------------------------
+app.get('/api/account/api-tokens', requireUser, async (req, res, next) => {
+  try { res.json({ tokens: await listApiTokens(req.user.id), proRequiredToCreate: req.user.plan !== 'pro' }); }
+  catch (error) { next(error); }
+});
+
+app.post('/api/account/api-tokens', requireEligibleUser, writeLimiter, async (req, res, next) => {
   try {
-    const userId = req.user.id;
-    await destroySession(req, res);
-    await audit(userId, 'auth.logout', userId);
+    requireProFeature(req.user);
+    const result = await createApiToken(req.user.id, { name: req.body.name, scopes: req.body.scopes, expiresInDays: req.body.expiresInDays });
+    await audit(req.user.id, 'api_token.created', result.record.id, { scopes: result.record.scopes });
+    res.status(201).json(result);
+  } catch (error) { mapProductError(error, res, next); }
+});
+
+app.delete('/api/account/api-tokens/:id', requireUser, writeLimiter, async (req, res, next) => {
+  try {
+    if (!(await revokeApiToken(req.user.id, req.params.id))) return res.status(404).json({ error: 'api_token_not_found' });
+    await audit(req.user.id, 'api_token.revoked', req.params.id);
     res.status(204).end();
   } catch (error) { next(error); }
 });
 
-async function loadOwnedLink(req, res, next) {
-  try {
-    const { rows } = await pool.query('SELECT * FROM links WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
-    if (!rows[0]) return res.status(404).json({ error: 'link_not_found' });
-    req.link = rows[0]; next();
-  } catch (error) { next(error); }
-}
-
+// Session-authenticated link product ---------------------------------------------------------------
 app.get('/api/links', requireUser, async (req, res, next) => {
-  try {
-    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
-    const { rows } = await pool.query('SELECT id,short_code,long_url,title,custom_slug,created_at,updated_at,disabled_at FROM links WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2', [req.user.id, limit]);
-    res.json({ links: rows.map(row => ({ ...row, short_url: `${config.publicShortBaseUrl}/${row.short_code}` })) });
-  } catch (error) { next(error); }
-});
-
-async function createNonReservedShortUrl(payload) {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const upstream = await createShortUrl(payload);
-    if (!RESERVED_SLUGS.has(String(upstream.shortCode || '').toLowerCase())) return upstream;
-    try { await deleteShortUrl(upstream.shortCode); } catch {}
-    if (payload.customSlug) throw Object.assign(new Error('That alias is reserved by QH8Z'), { status: 409 });
-  }
-  throw Object.assign(new Error('Could not generate a safe short code'), { status: 503 });
-}
-
-async function validateDestination(longUrl, userId, targetId = null) {
-  assertDestinationAllowed(longUrl);
-  const reputation = await checkUrlReputation(longUrl);
-  if (reputation.threats.length) {
-    await audit(userId, 'link.blocked_unsafe', targetId, { hostname: new URL(longUrl).hostname, threats: reputation.threats });
-    const error = new Error('That destination is flagged as unsafe.');
-    error.status = 422;
-    error.code = 'unsafe_destination';
-    error.threats = reputation.threats;
-    throw error;
-  }
-}
-
-app.post('/api/links', requireEligibleUser, writeLimiter, async (req, res, next) => {
-  try {
-    const plan = plans[req.user.plan] || plans.free;
-    const countResult = await pool.query('SELECT COUNT(*)::int AS count FROM links WHERE user_id=$1 AND disabled_at IS NULL', [req.user.id]);
-    if (countResult.rows[0].count >= plan.links) return res.status(402).json({ error: 'plan_limit_reached', limit: plan.links, plan: req.user.plan });
-    let longUrl; let customSlug;
-    try { longUrl = normalizeHttpUrl(req.body.longUrl); customSlug = normalizeSlug(req.body.customSlug); assertDestinationAllowed(longUrl); }
-    catch (error) { return res.status(400).json({ error: 'invalid_link', message: error.message }); }
-    const title = cleanTitle(req.body.title);
-    await validateDestination(longUrl, req.user.id);
-    const upstream = await createNonReservedShortUrl({ longUrl, customSlug, title });
-    const shortCode = upstream.shortCode;
-    if (!shortCode) throw new Error('Shlink did not return a shortCode');
-    const id = crypto.randomUUID();
-    try {
-      const result = await pool.query('INSERT INTO links(id,user_id,short_code,long_url,title,custom_slug,shlink_domain) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *', [id, req.user.id, shortCode, longUrl, title, customSlug, upstream.domain || null]);
-      await audit(req.user.id, 'link.created', id, { shortCode });
-      res.status(201).json({ link: { ...result.rows[0], short_url: `${config.publicShortBaseUrl}/${shortCode}`, visits: upstream.visitsSummary || { total: 0, nonBots: 0, bots: 0 } } });
-    } catch (dbError) {
-      try { await deleteShortUrl(shortCode); } catch {}
-      throw dbError;
-    }
-  } catch (error) {
-    if (error?.code === 'unsafe_destination') return res.status(422).json({ error: error.code, message: error.message, threats: error.threats });
-    if (error?.status === 400 || error?.status === 409) return res.status(409).json({ error: 'short_url_rejected', message: error.message });
-    next(error);
-  }
-});
-
-app.get('/api/links/:id/stats', requireUser, loadOwnedLink, async (req, res, next) => {
-  try {
-    const upstream = await getShortUrl(req.link.short_code);
-    res.json({ shortCode: req.link.short_code, shortUrl: `${config.publicShortBaseUrl}/${req.link.short_code}`, visits: upstream.visitsSummary || { total: 0, nonBots: 0, bots: 0 }, title: upstream.title || req.link.title, longUrl: upstream.longUrl || req.link.long_url });
-  } catch (error) { next(error); }
-});
-app.get('/api/links/:id/visits', requireUser, loadOwnedLink, async (req, res, next) => {
-  try { res.json(await getVisits(req.link.short_code, Math.max(Number(req.query.page) || 1, 1), 50)); }
+  try { res.json(await listLinks(req.user.id, req.query)); }
   catch (error) { next(error); }
 });
-app.get('/api/links/:id/qr.svg', requireUser, loadOwnedLink, async (req, res, next) => {
+
+app.post('/api/links', requireEligibleUser, writeLimiter, async (req, res, next) => {
+  try { res.status(201).json({ link: await createLink(req.user, req.body) }); }
+  catch (error) { mapProductError(error, res, next); }
+});
+
+app.post('/api/links/bulk', requireEligibleUser, writeLimiter, async (req, res, next) => {
+  try { res.status(207).json(await bulkCreateLinks(req.user, req.body.links)); }
+  catch (error) { mapProductError(error, res, next); }
+});
+
+app.get('/api/links/export.csv', requireUser, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM links WHERE user_id=$1 ORDER BY created_at DESC', [req.user.id]);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="qh8z-links.csv"');
+    res.send(linksToCsv(rows));
+  } catch (error) { next(error); }
+});
+
+app.get('/api/links/:id', requireUser, ownedLink, (req, res) => res.json({ link: publicLink(req.link) }));
+app.get('/api/links/:id/stats', requireUser, ownedLink, async (req, res, next) => {
+  try { res.json(await getLinkStats(req.link)); }
+  catch (error) { next(error); }
+});
+app.get('/api/links/:id/visits', requireUser, ownedLink, async (req, res, next) => {
+  try { res.json(await getVisits(req.link.short_code, req.query.page, req.query.itemsPerPage || 50)); }
+  catch (error) { next(error); }
+});
+app.get('/api/links/:id/qr.svg', requireUser, ownedLink, async (req, res, next) => {
   try { res.type('image/svg+xml').send(await QRCode.toString(`${config.publicShortBaseUrl}/${req.link.short_code}`, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' })); }
   catch (error) { next(error); }
 });
-app.patch('/api/links/:id', requireEligibleUser, writeLimiter, loadOwnedLink, async (req, res, next) => {
-  try {
-    let longUrl;
-    try { longUrl = normalizeHttpUrl(req.body.longUrl ?? req.link.long_url); assertDestinationAllowed(longUrl); }
-    catch (error) { return res.status(400).json({ error: 'invalid_link', message: error.message }); }
-    const title = req.body.title === undefined ? req.link.title : cleanTitle(req.body.title);
-    await validateDestination(longUrl, req.user.id, req.link.id);
-    await editShortUrl(req.link.short_code, { longUrl, title });
-    const { rows } = await pool.query('UPDATE links SET long_url=$1,title=$2,updated_at=NOW() WHERE id=$3 RETURNING *', [longUrl, title, req.link.id]);
-    await audit(req.user.id, 'link.updated', req.link.id, { shortCode: req.link.short_code });
-    res.json({ link: { ...rows[0], short_url: `${config.publicShortBaseUrl}/${req.link.short_code}` } });
-  } catch (error) {
-    if (error?.code === 'unsafe_destination') return res.status(422).json({ error: error.code, message: error.message, threats: error.threats });
-    next(error);
-  }
+app.patch('/api/links/:id', requireEligibleUser, writeLimiter, ownedLink, async (req, res, next) => {
+  try { res.json({ link: await updateLink(req.user, req.link, req.body) }); }
+  catch (error) { mapProductError(error, res, next); }
 });
-app.delete('/api/links/:id', requireEligibleUser, writeLimiter, loadOwnedLink, async (req, res, next) => {
-  try {
-    if (!req.link.disabled_at) {
-      await deleteShortUrl(req.link.short_code);
-      await pool.query('UPDATE links SET disabled_at=NOW(),updated_at=NOW() WHERE id=$1', [req.link.id]);
-      await audit(req.user.id, 'link.disabled', req.link.id, { shortCode: req.link.short_code });
-    }
-    res.status(204).end();
-  } catch (error) {
-    if (error?.status === 404) { await pool.query('UPDATE links SET disabled_at=COALESCE(disabled_at,NOW()),updated_at=NOW() WHERE id=$1', [req.link.id]); return res.status(204).end(); }
-    next(error);
-  }
+app.delete('/api/links/:id', requireEligibleUser, writeLimiter, ownedLink, async (req, res, next) => {
+  try { await disableLink(req.user, req.link); res.status(204).end(); }
+  catch (error) { next(error); }
+});
+app.post('/api/links/:id/restore', requireEligibleUser, writeLimiter, ownedLink, async (req, res, next) => {
+  try { res.json({ link: await restoreLink(req.user, req.link) }); }
+  catch (error) { mapProductError(error, res, next); }
+});
+app.post('/api/links/:id/archive', requireEligibleUser, writeLimiter, ownedLink, async (req, res, next) => {
+  try { res.json({ link: await setArchived(req.user, req.link, true) }); }
+  catch (error) { next(error); }
+});
+app.post('/api/links/:id/unarchive', requireEligibleUser, writeLimiter, ownedLink, async (req, res, next) => {
+  try { res.json({ link: await setArchived(req.user, req.link, false) }); }
+  catch (error) { next(error); }
 });
 
+// Bearer-auth developer API -----------------------------------------------------------------------
+app.use('/api/v1', apiLimiter, authenticateApiToken);
+app.get('/api/v1/me', (req, res) => res.json({ user: safeUser(req.user), token: { scopes: req.apiToken.scopes } }));
+app.get('/api/v1/links', requireApiScope('links:read'), async (req, res, next) => {
+  try { res.json(await listLinks(req.user.id, req.query)); }
+  catch (error) { next(error); }
+});
+app.post('/api/v1/links', requireApiScope('links:write'), async (req, res, next) => {
+  try { requireProFeature(req.user); res.status(201).json({ link: await createLink(req.user, req.body) }); }
+  catch (error) { mapProductError(error, res, next); }
+});
+app.get('/api/v1/links/:id', requireApiScope('links:read'), ownedLink, (req, res) => res.json({ link: publicLink(req.link) }));
+app.get('/api/v1/links/:id/stats', requireApiScope('links:read'), ownedLink, async (req, res, next) => {
+  try { res.json(await getLinkStats(req.link)); }
+  catch (error) { next(error); }
+});
+app.patch('/api/v1/links/:id', requireApiScope('links:write'), ownedLink, async (req, res, next) => {
+  try { requireProFeature(req.user); res.json({ link: await updateLink(req.user, req.link, req.body) }); }
+  catch (error) { mapProductError(error, res, next); }
+});
+app.delete('/api/v1/links/:id', requireApiScope('links:write'), ownedLink, async (req, res, next) => {
+  try { requireProFeature(req.user); await disableLink(req.user, req.link, 'api.link_disabled'); res.status(204).end(); }
+  catch (error) { mapProductError(error, res, next); }
+});
+
+// Abuse and administrator controls ---------------------------------------------------------------
 app.post('/api/report', reportLimiter, async (req, res, next) => {
   try {
     await requireHuman(req, 'report');
@@ -573,9 +579,17 @@ app.post('/api/admin/users/:id/unsuspend', requireAdmin, writeLimiter, async (re
   } catch (error) { next(error); }
 });
 
-app.post('/api/billing/checkout', requireEligibleUser, writeLimiter, async (req, res, next) => { try { const session = await createCheckout(req.user); res.json({ url: session.url }); } catch (error) { next(error); } });
-app.post('/api/billing/portal', requireUser, writeLimiter, async (req, res, next) => { try { const session = await createPortal(req.user); res.json({ url: session.url }); } catch (error) { next(error); } });
+// Billing -----------------------------------------------------------------------------------------
+app.post('/api/billing/checkout', requireEligibleUser, writeLimiter, async (req, res, next) => {
+  try { const session = await createCheckout(req.user); res.json({ url: session.url }); }
+  catch (error) { next(error); }
+});
+app.post('/api/billing/portal', requireUser, writeLimiter, async (req, res, next) => {
+  try { const session = await createPortal(req.user); res.json({ url: session.url }); }
+  catch (error) { next(error); }
+});
 
+// Public pages ------------------------------------------------------------------------------------
 function sendLegalTemplate(file, res) {
   const template = fs.readFileSync(path.join(publicDir, file), 'utf8');
   const html = template
@@ -586,7 +600,10 @@ function sendLegalTemplate(file, res) {
   res.type('html').send(html);
 }
 
-app.use('/assets', express.static(publicDir, { maxAge: config.env === 'production' ? '1h' : 0, index: false }));
+app.use('/assets', (req, res, next) => {
+  if (/\.html?$/i.test(req.path)) return res.status(404).end();
+  next();
+}, express.static(publicDir, { maxAge: config.env === 'production' ? '1h' : 0, index: false }));
 app.get('/favicon.svg', (_req, res) => res.sendFile(path.join(publicDir, 'favicon.svg')));
 app.get('/robots.txt', (_req, res) => res.sendFile(path.join(publicDir, 'robots.txt')));
 app.get('/.well-known/security.txt', (_req, res) => res.type('text/plain').sendFile(path.join(publicDir, '.well-known/security.txt')));
@@ -601,11 +618,11 @@ app.get('/privacy', (_req, res) => sendLegalTemplate('privacy.html', res));
 app.get('/terms', (_req, res) => sendLegalTemplate('terms.html', res));
 app.get('/security', (_req, res) => res.sendFile(path.join(publicDir, 'security.html')));
 app.get('/', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
-app.use((req, res) => { if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'not_found' }); res.status(404).sendFile(path.join(publicDir, '404.html')); });
+app.use((req, res) => { if (req.path === '/api' || req.path.startsWith('/api/')) return res.status(404).json({ error: 'not_found' }); res.status(404).sendFile(path.join(publicDir, '404.html')); });
 app.use((error, req, res, _next) => {
   console.error(JSON.stringify({ level: 'error', event: 'http.error', requestId: req.id, message: error?.message, stack: config.env === 'production' ? undefined : error?.stack }));
   const status = Number(error?.status) >= 400 && Number(error?.status) < 600 ? Number(error.status) : 500;
-  res.status(status).json({ error: error?.code || (status === 500 ? 'internal_error' : 'request_failed'), message: status < 500 ? error.message : 'Something went wrong', requestId: req.id });
+  res.status(status).json({ error: status >= 500 ? 'internal_error' : (error?.code || 'request_failed'), message: status < 500 ? error.message : 'Something went wrong', requestId: req.id });
 });
 
 await migrate();
@@ -617,5 +634,4 @@ const adminCount = await pool.query('SELECT COUNT(*)::int AS count FROM users WH
 if (adminCount.rows[0].count === 0 && config.publicLaunchMode && (!config.adminEmail || !config.adminBootstrapSecret)) problems.push('No administrator exists; ADMIN_EMAIL and ADMIN_BOOTSTRAP_SECRET are required for first public launch');
 if (config.adminEmail) await pool.query('UPDATE users SET email_verified_at=COALESCE(email_verified_at,NOW()) WHERE email=$1 AND is_admin=TRUE', [config.adminEmail]);
 if (problems.length) throw new Error(`QH8Z startup blocked: ${problems.join('; ')}`);
-setInterval(() => Promise.all([cleanupExpiredSessions(), cleanupExpiredAuthTokens(), cleanupRetainedOperationalData()]).catch(console.error), 6 * 60 * 60_000).unref();
 app.listen(config.port, '0.0.0.0', () => console.log(JSON.stringify({ level: 'info', event: 'app.started', port: config.port, env: config.env, publicLaunchMode: config.publicLaunchMode })));
