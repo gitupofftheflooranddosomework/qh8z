@@ -5,39 +5,42 @@ on:
     branches: [main]
 permissions:
   contents: read
+
+x-qh8z-env: &qh8z-env
+  NODE_ENV: development
+  POSTGRES_PASSWORD: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  QH8Z_DB_PASSWORD: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  SHLINK_DB_PASSWORD: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  SHLINK_API_KEY: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+  QH8Z_DOMAIN: localhost
+  APP_BASE_URL: http://localhost:3000
+  PUBLIC_SHORT_BASE_URL: http://localhost:8080
+  SHLINK_HTTPS_ENABLED: 'false'
+  COOKIE_SECURE: 'false'
+  ALLOW_SIGNUP: 'true'
+  PUBLIC_LAUNCH_MODE: 'false'
+  EMAIL_VERIFICATION_REQUIRED: 'true'
+  TERMS_VERSION: '2026-08-17'
+  DEV_EXPOSE_AUTH_TOKENS: 'true'
+  ADMIN_SESSION_HOURS: '12'
+  ADMIN_EMAIL: admin@example.com
+  ADMIN_BOOTSTRAP_SECRET: qh8z-ci-admin-bootstrap-secret-2026
+  MFA_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  SUPPORT_EMAIL: support@example.com
+  ABUSE_EMAIL: abuse@example.com
+  LEGAL_OPERATOR_NAME: QH8Z CI
+  LEGAL_JURISDICTION: Test
+  MAIL_MODE: log
+  TURNSTILE_REQUIRED: 'false'
+  SKIP_INITIAL_GEOLITE_DOWNLOAD: 'true'
+  WEB_RISK_REQUIRED: 'false'
+  REPUTATION_RECHECK_HOURS: '0'
+
 jobs:
   docker-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      NODE_ENV: development
-      POSTGRES_PASSWORD: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      QH8Z_DB_PASSWORD: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-      SHLINK_DB_PASSWORD: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-      SHLINK_API_KEY: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-      QH8Z_DOMAIN: localhost
-      APP_BASE_URL: http://localhost:3000
-      PUBLIC_SHORT_BASE_URL: http://localhost:8080
-      SHLINK_HTTPS_ENABLED: 'false'
-      COOKIE_SECURE: 'false'
-      ALLOW_SIGNUP: 'true'
-      PUBLIC_LAUNCH_MODE: 'false'
-      EMAIL_VERIFICATION_REQUIRED: 'true'
-      TERMS_VERSION: '2026-08-17'
-      DEV_EXPOSE_AUTH_TOKENS: 'true'
-      ADMIN_SESSION_HOURS: '12'
-      ADMIN_EMAIL: admin@example.com
-      ADMIN_BOOTSTRAP_SECRET: qh8z-ci-admin-bootstrap-secret-2026
-      MFA_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-      SUPPORT_EMAIL: support@example.com
-      ABUSE_EMAIL: abuse@example.com
-      LEGAL_OPERATOR_NAME: QH8Z CI
-      LEGAL_JURISDICTION: Test
-      MAIL_MODE: log
-      TURNSTILE_REQUIRED: 'false'
-      SKIP_INITIAL_GEOLITE_DOWNLOAD: 'true'
-      WEB_RISK_REQUIRED: 'false'
-      REPUTATION_RECHECK_HOURS: '0'
+    env: *qh8z-env
     steps:
       - uses: actions/checkout@v7
       - name: Boot and exercise the public stack
@@ -49,38 +52,25 @@ jobs:
           name: qh8z-compose-logs
           path: /tmp/qh8z-compose.log
 
+  product-v1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env: *qh8z-env
+    steps:
+      - uses: actions/checkout@v7
+      - name: Exercise launch-v1 product workflows
+        run: bash scripts/product-integration.sh
+      - name: Upload compose logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: qh8z-product-compose-logs
+          path: /tmp/qh8z-product-compose.log
+
   backup-restore:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      NODE_ENV: development
-      POSTGRES_PASSWORD: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      QH8Z_DB_PASSWORD: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-      SHLINK_DB_PASSWORD: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-      SHLINK_API_KEY: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-      QH8Z_DOMAIN: localhost
-      APP_BASE_URL: http://localhost:3000
-      PUBLIC_SHORT_BASE_URL: http://localhost:8080
-      SHLINK_HTTPS_ENABLED: 'false'
-      COOKIE_SECURE: 'false'
-      ALLOW_SIGNUP: 'true'
-      PUBLIC_LAUNCH_MODE: 'false'
-      EMAIL_VERIFICATION_REQUIRED: 'true'
-      TERMS_VERSION: '2026-08-17'
-      DEV_EXPOSE_AUTH_TOKENS: 'true'
-      ADMIN_SESSION_HOURS: '12'
-      ADMIN_EMAIL: admin@example.com
-      ADMIN_BOOTSTRAP_SECRET: qh8z-ci-admin-bootstrap-secret-2026
-      MFA_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-      SUPPORT_EMAIL: support@example.com
-      ABUSE_EMAIL: abuse@example.com
-      LEGAL_OPERATOR_NAME: QH8Z CI
-      LEGAL_JURISDICTION: Test
-      MAIL_MODE: log
-      TURNSTILE_REQUIRED: 'false'
-      SKIP_INITIAL_GEOLITE_DOWNLOAD: 'true'
-      WEB_RISK_REQUIRED: 'false'
-      REPUTATION_RECHECK_HOURS: '0'
+    env: *qh8z-env
     steps:
       - uses: actions/checkout@v7
       - name: Back up, destroy, restore, and verify both databases
