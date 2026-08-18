@@ -3,6 +3,7 @@ import { pool, audit } from './db.mjs';
 import { getShortUrl, editShortUrl, deleteShortUrl } from './shlink.mjs';
 
 const DEFAULT_CONFIRM_AFTER_MS = 5 * 60_000;
+const DEFAULT_ORPHAN_AFTER_MS = 5 * 60_000;
 const CHECK_INTERVAL_MINUTES = 60;
 const RECONCILE_CONCURRENCY = 10;
 
@@ -37,6 +38,88 @@ async function observeUpstream(link) {
   }
 }
 
+export async function reconcileCreateIntents({ orphanAfterMs = DEFAULT_ORPHAN_AFTER_MS, batch = 100 } = {}) {
+  const result = { intentsClaimed: 0, orphanDeleted: 0, staleIntentsCleared: 0, orphanFailures: 0 };
+
+  // Once the QH8Z ownership row exists, the create handoff completed and the
+  // durable intent is no longer needed.
+  const claimed = await pool.query(
+    `DELETE FROM shlink_create_intents i
+     USING links l
+     WHERE l.short_code=i.short_code
+     RETURNING i.short_code`
+  );
+  result.intentsClaimed = claimed.rows.length;
+
+  const cutoff = new Date(Date.now() - Math.max(0, orphanAfterMs));
+  const limit = Math.min(Math.max(Number(batch) || 100, 1), 500);
+  const { rows } = await pool.query(
+    `SELECT short_code,long_url,created_at
+     FROM shlink_create_intents
+     WHERE created_at <= $1
+     ORDER BY created_at ASC
+     LIMIT $2`,
+    [cutoff, limit]
+  );
+
+  for (let offset = 0; offset < rows.length; offset += RECONCILE_CONCURRENCY) {
+    const chunk = rows.slice(offset, offset + RECONCILE_CONCURRENCY);
+    const outcomes = await Promise.all(chunk.map(async intent => {
+      const link = { short_code: intent.short_code };
+      let observed;
+      try {
+        observed = await observeUpstream(link);
+      } catch (error) {
+        console.warn(JSON.stringify({ level: 'warn', event: 'consistency.orphan_lookup_failed', shortCode: intent.short_code, message: error.message }));
+        return 'failed';
+      }
+
+      if (!observed.found) {
+        await pool.query('DELETE FROM shlink_create_intents WHERE short_code=$1', [intent.short_code]);
+        return 'stale';
+      }
+
+      let deleted = false;
+      try {
+        await deleteShortUrl(intent.short_code);
+        deleted = true;
+      } catch (error) {
+        if (error?.status === 404) {
+          deleted = true;
+        } else {
+          try {
+            const after = await observeUpstream(link);
+            deleted = !after.found;
+          } catch (verifyError) {
+            console.error(JSON.stringify({ level: 'error', event: 'consistency.orphan_delete_unresolved', shortCode: intent.short_code, message: verifyError.message }));
+          }
+        }
+      }
+
+      if (!deleted) {
+        console.error(JSON.stringify({ level: 'error', event: 'consistency.orphan_delete_failed', shortCode: intent.short_code }));
+        return 'failed';
+      }
+
+      await pool.query('DELETE FROM shlink_create_intents WHERE short_code=$1', [intent.short_code]);
+      await audit(null, 'consistency.orphan_short_deleted', intent.short_code, {
+        shortCode: intent.short_code,
+        expectedDestination: intent.long_url,
+        observedDestination: observed.value?.longUrl || null,
+      });
+      return 'deleted';
+    }));
+
+    for (const outcome of outcomes) {
+      if (outcome === 'deleted') result.orphanDeleted += 1;
+      else if (outcome === 'stale') result.staleIntentsCleared += 1;
+      else if (outcome === 'failed') result.orphanFailures += 1;
+    }
+  }
+
+  return result;
+}
+
 export async function reconcileTrackedLink(link, { confirmAfterMs = DEFAULT_CONFIRM_AFTER_MS } = {}) {
   let observed;
   try {
@@ -63,8 +146,6 @@ export async function reconcileTrackedLink(link, { confirmAfterMs = DEFAULT_CONF
     return 'mismatch_pending';
   }
 
-  // Re-read both sides after the confirmation window so a normal in-flight
-  // QH8Z edit cannot be mistaken for persistent divergence.
   const currentResult = await pool.query(
     'SELECT id,short_code,long_url,title,updated_at,disabled_at,consistency_mismatch_at FROM links WHERE id=$1',
     [link.id]
@@ -88,9 +169,6 @@ export async function reconcileTrackedLink(link, { confirmAfterMs = DEFAULT_CONF
     return 'consistent';
   }
 
-  // The QH8Z row is the policy-checked ownership record. Repair Shlink back to
-  // that state. A follow-up GET is mandatory because mutation timeouts are
-  // ambiguous: Shlink may have committed even when the response was lost.
   try {
     await editShortUrl(current.short_code, { longUrl: current.long_url, title: current.title });
   } catch (error) {
@@ -119,8 +197,6 @@ export async function reconcileTrackedLink(link, { confirmAfterMs = DEFAULT_CONF
     if (error?.status === 404) {
       deleted = true;
     } else {
-      // Resolve a timeout/network error by observing the resulting state. If the
-      // link is gone, fail-closed deletion actually succeeded despite the error.
       try {
         const afterDelete = await observeUpstream(current);
         deleted = !afterDelete.found;
@@ -138,8 +214,9 @@ export async function reconcileTrackedLink(link, { confirmAfterMs = DEFAULT_CONF
   return 'disabled_mismatch';
 }
 
-export async function reconcileDueLinks({ confirmAfterMs = DEFAULT_CONFIRM_AFTER_MS, batch = null } = {}) {
+export async function reconcileDueLinks({ confirmAfterMs = DEFAULT_CONFIRM_AFTER_MS, orphanAfterMs = DEFAULT_ORPHAN_AFTER_MS, batch = null } = {}) {
   const limit = Math.min(Math.max(Number(batch) || config.reputationRecheckBatch * 4 || 100, 25), 500);
+  const intentResult = await reconcileCreateIntents({ orphanAfterMs, batch: limit });
   const { rows } = await pool.query(
     `SELECT id,short_code,long_url,title,updated_at,disabled_at,consistency_checked_at,consistency_mismatch_at
      FROM links
@@ -152,7 +229,7 @@ export async function reconcileDueLinks({ confirmAfterMs = DEFAULT_CONFIRM_AFTER
     [CHECK_INTERVAL_MINUTES, limit]
   );
 
-  const results = { checked: 0, consistent: 0, repaired: 0, disabled: 0, pending: 0, failed: 0 };
+  const results = { checked: 0, consistent: 0, repaired: 0, disabled: 0, pending: 0, failed: 0, ...intentResult };
   for (let offset = 0; offset < rows.length; offset += RECONCILE_CONCURRENCY) {
     const outcomes = await Promise.all(rows.slice(offset, offset + RECONCILE_CONCURRENCY).map(link => reconcileTrackedLink(link, { confirmAfterMs })));
     for (const outcome of outcomes) {
