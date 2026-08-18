@@ -45,6 +45,14 @@ function clearSensitiveFailures(req, userId) {
   sensitiveFailures.delete(sensitiveKey(req, userId));
 }
 
+setInterval(() => {
+  const cutoff = Date.now() - SENSITIVE_WINDOW_MS;
+  for (const [key, timestamps] of sensitiveFailures) {
+    const recent = timestamps.filter(ts => ts > cutoff);
+    if (recent.length) sensitiveFailures.set(key, recent); else sensitiveFailures.delete(key);
+  }
+}, 5 * 60_000).unref();
+
 export async function hashPassword(password) {
   return bcrypt.hash(password, 12);
 }
