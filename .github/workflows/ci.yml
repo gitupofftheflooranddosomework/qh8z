@@ -24,4 +24,4 @@ jobs:
       - run: npm audit --omit=dev --audit-level=high
       - name: Check operator shell scripts
         working-directory: .
-        run: bash -n scripts/*.sh
+        run: bash -n scripts/*.sh infra/postgres/*.sh
