@@ -10,10 +10,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-json_field() {
-  python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"
-}
-
 docker compose --profile production up -d --build --remove-orphans
 
 ready=0
@@ -115,7 +111,8 @@ curl -fsS -b "$USER_JAR" http://localhost:3000/api/links/export.csv >/tmp/qh8z-p
 grep -q 'product-advanced' /tmp/qh8z-product-links.csv
 grep -q 'product-bulk-one' /tmp/qh8z-product-links.csv
 
-# Developer API token lifecycle: create -> bearer read/write -> revoke -> denied.
+# Developer API token lifecycle: create -> bearer read/write -> downgrade denied
+# -> Pro restored -> token works again -> revoke -> denied.
 token_json=$(curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -H 'content-type: application/json' \
   -d '{"name":"CI product token","scopes":["links:read","links:write"],"expiresInDays":30}' \
   http://localhost:3000/api/account/api-tokens)
@@ -133,6 +130,28 @@ printf '%s' "$api_created" >/tmp/qh8z-product-api-created.json
 grep -q 'product-api-created' /tmp/qh8z-product-api-created.json
 api_redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/product-api-created)
 [[ "$api_redirect" == "https://example.com/api-created" ]]
+
+# Billing downgrade keeps user data and tokens stored but removes paid API entitlement.
+docker compose exec -T db psql -U postgres -d qh8z -v ON_ERROR_STOP=1 \
+  -c "UPDATE users SET plan='free' WHERE email='product@example.com';" >/dev/null
+downgraded_status=$(curl -sS -o /tmp/qh8z-product-downgraded-api.json -w '%{http_code}' -H "Authorization: Bearer $api_token" http://localhost:3000/api/v1/links)
+[[ "$downgraded_status" == "402" ]]
+grep -q 'feature_requires_pro' /tmp/qh8z-product-downgraded-api.json
+# Existing advanced link and its redirect remain intact through downgrade.
+redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/product-advanced)
+[[ "$redirect" == "https://example.com/advanced" ]]
+curl -fsS -b "$USER_JAR" 'http://localhost:3000/api/links?q=product-advanced' | grep -q 'product-advanced'
+
+# Returning to Pro re-enables the same still-stored token.
+docker compose exec -T db psql -U postgres -d qh8z -v ON_ERROR_STOP=1 \
+  -c "UPDATE users SET plan='pro' WHERE email='product@example.com';" >/dev/null
+curl -fsS -H "Authorization: Bearer $api_token" 'http://localhost:3000/api/v1/links?q=product-advanced' | grep -q 'product-advanced'
+
+# Unknown scopes are explicit client errors rather than silently changing intent.
+invalid_scope_status=$(curl -sS -o /tmp/qh8z-product-invalid-scope.json -w '%{http_code}' -b "$USER_JAR" -H "Origin: $ORIGIN" -H 'content-type: application/json' \
+  -d '{"name":"bad scope","scopes":["links:admin"]}' http://localhost:3000/api/account/api-tokens)
+[[ "$invalid_scope_status" == "400" ]]
+grep -q 'invalid_api_scope' /tmp/qh8z-product-invalid-scope.json
 
 curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -X DELETE "http://localhost:3000/api/account/api-tokens/${token_id}" >/dev/null
 revoked_status=$(curl -sS -o /tmp/qh8z-product-revoked.json -w '%{http_code}' -H "Authorization: Bearer $api_token" http://localhost:3000/api/v1/links)
