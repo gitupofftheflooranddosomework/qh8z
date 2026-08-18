@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: qh8z
+      POSTGRES_PASSWORD: qh8z_dev
+      POSTGRES_DB: qh8z
+    volumes:
+      - qh8z_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qh8z -d qh8z"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      QH8Z_ENV: development
+      QH8Z_STORAGE: postgres
+      QH8Z_BASE_URL: http://localhost:8080
+      DATABASE_URL: postgres://qh8z:qh8z_dev@db:5432/qh8z?sslmode=disable
+    ports:
+      - "8080:8080"
+
+volumes:
+  qh8z_postgres:

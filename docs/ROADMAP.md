@@ -13,10 +13,10 @@
 
 ## Milestone 2 — durable production data
 
-- [ ] PostgreSQL schema and migrations
-- [ ] Durable links and analytics
+- [x] PostgreSQL schema and migrations
+- [x] Durable links and analytics
 - [ ] Redis-compatible redirect cache
-- [ ] Backups and restore procedure
+- [x] Backups and restore procedure
 - [ ] Async analytics event pipeline
 
 ## Milestone 3 — accounts and ownership
@@ -42,7 +42,7 @@
 ## Milestone 5 — analytics
 
 - [ ] Bot filtering
-- [ ] Referrers
+- [x] Referrer capture
 - [ ] Browser / OS / device classification
 - [ ] Country / region enrichment with privacy review
 - [ ] Time-series rollups

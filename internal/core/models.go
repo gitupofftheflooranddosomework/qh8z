@@ -14,6 +14,7 @@ type Link struct {
 	Slug      string    `json:"slug"`
 	URL       string    `json:"url"`
 	CreatedAt time.Time `json:"createdAt"`
+	Visits    int64     `json:"visits"`
 }
 
 type Visit struct {
