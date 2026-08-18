@@ -2,10 +2,18 @@ import Stripe from 'stripe';
 import { config } from './config.mjs';
 import { pool } from './db.mjs';
 
-const stripe = config.stripeSecretKey ? new Stripe(config.stripeSecretKey) : null;
+const stripe = config.stripeSecretKey ? new Stripe(config.stripeSecretKey, {
+  timeout: 10_000,
+  maxNetworkRetries: 2,
+}) : null;
 
 export function billingEnabled() {
   return Boolean(stripe && config.stripeWebhookSecret && config.stripeProPriceId);
+}
+
+export function checkoutIdempotencyKey(userId, now = Date.now()) {
+  const bucket = Math.floor(Number(now) / (10 * 60_000));
+  return `qh8z-checkout:${String(userId)}:${bucket}`;
 }
 
 export async function createCheckout(user) {
@@ -26,7 +34,7 @@ export async function createCheckout(user) {
     metadata: { user_id: user.id },
     subscription_data: { metadata: { user_id: user.id } },
     allow_promotion_codes: true,
-  });
+  }, { idempotencyKey: checkoutIdempotencyKey(user.id) });
 }
 
 export async function createPortal(user) {
