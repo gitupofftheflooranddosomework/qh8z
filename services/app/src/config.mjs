@@ -17,11 +17,16 @@ const emailLike = value => {
   return email.length <= 254 && /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(email);
 };
 const integerBetween = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
+const hostnameLike = value => {
+  const host = trimmed(value).toLowerCase();
+  return host.length <= 253 && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/.test(host);
+};
 
 export const config = Object.freeze({
   env: process.env.NODE_ENV || 'development',
   port: int(process.env.PORT, 3000),
   databaseUrl: process.env.DATABASE_URL || 'postgres://qh8z:qh8z@db:5432/qh8z',
+  qh8zDomain: trimmed(process.env.QH8Z_DOMAIN).toLowerCase(),
   appBaseUrl: (process.env.APP_BASE_URL || 'http://localhost:3000').replace(/\/$/, ''),
   publicShortBaseUrl: (process.env.PUBLIC_SHORT_BASE_URL || 'http://localhost:8080').replace(/\/$/, ''),
   shlinkBaseUrl: (process.env.SHLINK_BASE_URL || 'http://shlink:8080').replace(/\/$/, ''),
@@ -73,13 +78,16 @@ function requireHttpsOrigin(problems, name, value) {
     const url = new URL(value);
     if (url.protocol !== 'https:') {
       problems.push(`${name} must use HTTPS`);
-      return;
+      return null;
     }
-    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
-      problems.push(`${name} must be an HTTPS origin without a path, query, fragment, or embedded credentials`);
+    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || url.port) {
+      problems.push(`${name} must be a standard-port HTTPS origin without a path, query, fragment, or embedded credentials`);
+      return null;
     }
+    return url;
   } catch {
     problems.push(`${name} must be a valid absolute HTTPS origin`);
+    return null;
   }
 }
 
@@ -89,8 +97,11 @@ export function startupProblems() {
   if (billingValues.some(Boolean) && !billingValues.every(Boolean)) problems.push('Stripe must be configured with secret key, webhook secret, and Pro price ID together');
   if (!config.publicLaunchMode) return problems;
   if (config.env !== 'production') problems.push('PUBLIC_LAUNCH_MODE requires NODE_ENV=production');
-  requireHttpsOrigin(problems, 'APP_BASE_URL', config.appBaseUrl);
-  requireHttpsOrigin(problems, 'PUBLIC_SHORT_BASE_URL', config.publicShortBaseUrl);
+  if (!hostnameLike(config.qh8zDomain)) problems.push('QH8Z_DOMAIN must be a valid public hostname');
+  const appOrigin = requireHttpsOrigin(problems, 'APP_BASE_URL', config.appBaseUrl);
+  const shortOrigin = requireHttpsOrigin(problems, 'PUBLIC_SHORT_BASE_URL', config.publicShortBaseUrl);
+  if (hostnameLike(config.qh8zDomain) && appOrigin && appOrigin.hostname.toLowerCase() !== config.qh8zDomain) problems.push('APP_BASE_URL host must exactly match QH8Z_DOMAIN');
+  if (hostnameLike(config.qh8zDomain) && shortOrigin && shortOrigin.hostname.toLowerCase() !== config.qh8zDomain) problems.push('PUBLIC_SHORT_BASE_URL host must exactly match QH8Z_DOMAIN');
   if (!integerBetween(config.port, 1, 65535)) problems.push('PORT must be an integer between 1 and 65535');
   if (!config.cookieSecure) problems.push('COOKIE_SECURE must be true');
   if (!config.emailVerificationRequired) problems.push('EMAIL_VERIFICATION_REQUIRED must be true');
