@@ -14,6 +14,7 @@ import (
 
 func main() {
 	target := flag.String("url", "", "URL to load test")
+	host := flag.String("host", "", "optional HTTP Host header")
 	duration := flag.Duration("duration", 30*time.Second, "test duration")
 	concurrency := flag.Int("concurrency", 20, "concurrent workers")
 	expectedStatus := flag.Int("expect-status", http.StatusFound, "expected HTTP status")
@@ -48,6 +49,9 @@ func main() {
 				failed.Add(1)
 				total.Add(1)
 				continue
+			}
+			if *host != "" {
+				req.Host = *host
 			}
 			resp, err := client.Do(req)
 			latency := time.Since(started)
