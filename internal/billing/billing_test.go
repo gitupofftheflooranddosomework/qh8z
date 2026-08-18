@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ import (
 )
 
 func TestStripeCheckoutAndPortal(t *testing.T) {
-	var checkoutForm, portalForm map[string][]string
+	var checkoutForm, portalForm url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if user, _, ok := r.BasicAuth(); !ok || user != "sk_test_qh8z" {
 			t.Errorf("unexpected Stripe auth: %q ok=%v", user, ok)
