@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: qh8z
+          POSTGRES_PASSWORD: qh8z
+          POSTGRES_DB: qh8z_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U qh8z -d qh8z_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      QH8Z_TEST_DATABASE_URL: postgres://qh8z:qh8z@localhost:5432/qh8z_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Verify module files
+        run: go mod tidy && git diff --exit-code -- go.mod go.sum
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            printf 'Unformatted Go files:\n%s\n' "$unformatted"
+            exit 1
+          fi
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race ./...
+      - name: Build
+        run: CGO_ENABLED=0 go build -trimpath ./cmd/qh8z
+      - name: Validate Compose
+        run: docker compose config --quiet
+      - name: Build container
+        run: docker build -t qh8z:ci .
