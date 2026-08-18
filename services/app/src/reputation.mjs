@@ -75,10 +75,25 @@ async function recheckDueLinks() {
 }
 
 let reputationWorkerStarted = false;
+let reputationPassRunning = false;
+
+async function runReputationPass() {
+  if (reputationPassRunning) {
+    console.warn(JSON.stringify({ level: 'warn', event: 'reputation.pass_skipped', reason: 'previous_pass_still_running' }));
+    return;
+  }
+  reputationPassRunning = true;
+  try {
+    await recheckDueLinks();
+  } finally {
+    reputationPassRunning = false;
+  }
+}
+
 export function startReputationWorker() {
   if (reputationWorkerStarted || config.reputationWorkerMinutes <= 0) return;
   reputationWorkerStarted = true;
-  const run = () => recheckDueLinks().catch(error => console.error(JSON.stringify({ level: 'error', event: 'reputation.worker_failed', message: error.message })));
+  const run = () => runReputationPass().catch(error => console.error(JSON.stringify({ level: 'error', event: 'reputation.worker_failed', message: error.message })));
   setTimeout(run, 30_000).unref();
   setInterval(run, config.reputationWorkerMinutes * 60_000).unref();
 }
