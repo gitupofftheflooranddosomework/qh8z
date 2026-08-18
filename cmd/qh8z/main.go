@@ -55,6 +55,10 @@ func main() {
 		logger.Error("safety startup failed", "error", err)
 		os.Exit(1)
 	}
+	if err := configureBilling(environment); err != nil {
+		logger.Error("billing startup failed", "error", err)
+		os.Exit(1)
+	}
 
 	a := &app{
 		store:         store,
@@ -166,6 +170,10 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/plans", a.listPlans)
 	mux.HandleFunc("GET /api/v1/usage", a.usage)
 	mux.HandleFunc("GET /api/v1/analytics", a.analyticsDashboard)
+	mux.HandleFunc("GET /api/v1/billing", a.billingStatus)
+	mux.HandleFunc("POST /api/v1/billing/checkout", a.createCheckout)
+	mux.HandleFunc("POST /api/v1/billing/portal", a.createBillingPortal)
+	mux.HandleFunc("POST /api/v1/billing/webhook", a.billingWebhook)
 	mux.HandleFunc("GET /api/v1/domains", a.listCustomDomains)
 	mux.HandleFunc("POST /api/v1/domains", a.createCustomDomain)
 	mux.HandleFunc("POST /api/v1/domains/{id}/verify", a.verifyCustomDomain)
