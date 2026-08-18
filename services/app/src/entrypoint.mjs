@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { config, startupProblems } from './config.mjs';
 import { pool } from './db.mjs';
+import { startHousekeeping, stopHousekeeping } from './housekeeping.mjs';
 import { startReputationWorker, stopReputationWorker } from './reputation.mjs';
 import { validateAdminMfaEncryption } from './startup-security.mjs';
 
@@ -34,13 +35,17 @@ async function shutdown(signal, requestedExitCode = 0) {
       try { server.closeIdleConnections?.(); } catch {}
     });
     const workerDrain = stopReputationWorker(5000);
-    const [httpResult, workerResult] = await Promise.allSettled([httpDrain, workerDrain]);
+    const housekeepingDrain = stopHousekeeping(5000);
+    const [httpResult, workerResult, housekeepingResult] = await Promise.allSettled([httpDrain, workerDrain, housekeepingDrain]);
 
     if (httpResult.status !== 'fulfilled' || httpResult.value !== true) {
       console.error(JSON.stringify({ level: 'error', event: 'app.shutdown_http_drain_failed' }));
     }
     if (workerResult.status !== 'fulfilled' || workerResult.value !== true) {
       console.warn(JSON.stringify({ level: 'warn', event: 'app.shutdown_worker_drain_incomplete' }));
+    }
+    if (housekeepingResult.status !== 'fulfilled' || housekeepingResult.value !== true) {
+      console.warn(JSON.stringify({ level: 'warn', event: 'app.shutdown_housekeeping_drain_incomplete' }));
     }
 
     await pool.end();
@@ -69,6 +74,7 @@ try {
     if (mfaProblems.length) throw new Error(`QH8Z startup blocked: ${mfaProblems.join('; ')}`);
   }
 
+  startHousekeeping();
   startReputationWorker();
 } catch (error) {
   http.Server.prototype.listen = originalListen;
