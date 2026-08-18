@@ -7,7 +7,7 @@ USER_JAR=/tmp/qh8z-user-cookies.txt
 
 cleanup() {
   docker compose logs --no-color > /tmp/qh8z-compose.log 2>&1 || true
-  docker compose down -v --remove-orphans >/dev/null 2>&1 || true
+  docker compose --profile production down -v --remove-orphans >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -37,6 +37,20 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 if [[ "$ready" != "1" ]]; then docker compose logs --no-color; exit 1; fi
+
+# Start the real production edge on localhost TLS and verify upstream management is not exposed.
+docker compose --profile production up -d caddy
+edge_ready=0
+for _ in $(seq 1 60); do
+  if curl -kfsS https://localhost/healthz >/tmp/qh8z-edge-health.json 2>/dev/null; then edge_ready=1; break; fi
+  sleep 1
+done
+if [[ "$edge_ready" != "1" ]]; then docker compose --profile production logs --no-color caddy; exit 1; fi
+edge_api_status=$(curl -ksS -o /dev/null -w '%{http_code}' https://localhost/rest/health)
+[[ "$edge_api_status" == "404" ]]
+curl -kfsS -D /tmp/qh8z-edge-headers.txt -o /dev/null https://localhost/
+grep -qi '^strict-transport-security:' /tmp/qh8z-edge-headers.txt
+grep -qi '^x-content-type-options: nosniff' /tmp/qh8z-edge-headers.txt
 
 # Bootstrap admin locally (never through a public HTTP bypass), log in, then enroll MFA.
 docker compose exec -T -e BOOTSTRAP_ADMIN_PASSWORD=correct-horse-battery -e BOOTSTRAP_ADMIN_SECRET=qh8z-ci-admin-bootstrap-secret-2026 app node src/bootstrap-admin.mjs >/tmp/qh8z-admin-bootstrap.txt
@@ -72,11 +86,11 @@ status=$(curl -sS -o /tmp/qh8z-private.json -w '%{http_code}' -b "$USER_JAR" -H 
 create_json=$(curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -H 'content-type: application/json' -d '{"longUrl":"https://example.com/one","customSlug":"ci-link","title":"CI link"}' http://localhost:3000/api/links)
 printf '%s' "$create_json" >/tmp/qh8z-link.json
 link_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["link"]["id"])' </tmp/qh8z-link.json)
-redirect_1=$(curl -sS -H 'Host: localhost' -o /dev/null -w '%{redirect_url}' http://localhost:8080/ci-link)
+redirect_1=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/ci-link)
 [[ "$redirect_1" == "https://example.com/one" ]]
 
 curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -X PATCH -H 'content-type: application/json' -d '{"longUrl":"https://example.com/two","title":"Updated CI link"}' "http://localhost:3000/api/links/${link_id}" >/tmp/qh8z-edited.json
-redirect_2=$(curl -sS -H 'Host: localhost' -o /dev/null -w '%{redirect_url}' http://localhost:8080/ci-link)
+redirect_2=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/ci-link)
 [[ "$redirect_2" == "https://example.com/two" ]]
 curl -fsS -b "$USER_JAR" "http://localhost:3000/api/links/${link_id}/stats" >/tmp/qh8z-stats.json
 curl -fsS -b "$USER_JAR" "http://localhost:3000/api/links/${link_id}/qr.svg" | grep -q '<svg'
@@ -103,7 +117,7 @@ user_id=$(python3 -c 'import json; d=json.load(open("/tmp/qh8z-users.json")); pr
 curl -fsS -b "$ADMIN_JAR" -H "Origin: $ORIGIN" -H 'content-type: application/json' -d '{"reason":"CI suspension"}' "http://localhost:3000/api/admin/users/${user_id}/suspend" >/tmp/qh8z-suspend.json
 status=$(curl -sS -o /dev/null -w '%{http_code}' -b "$USER_JAR" -H "Origin: $ORIGIN" -H 'content-type: application/json' -d '{"longUrl":"https://example.com/four"}' http://localhost:3000/api/links)
 [[ "$status" == "401" ]]
-for slug in ci-link ci-two; do disabled=$(curl -sS -H 'Host: localhost' -o /dev/null -w '%{redirect_url}' "http://localhost:8080/$slug" || true); [[ "$disabled" != https://example.com/* ]]; done
+for slug in ci-link ci-two; do disabled=$(curl -ksS -o /dev/null -w '%{redirect_url}' "https://localhost/$slug" || true); [[ "$disabled" != https://example.com/* ]]; done
 curl -fsS -b "$ADMIN_JAR" -H "Origin: $ORIGIN" -X POST "http://localhost:3000/api/admin/users/${user_id}/unsuspend" >/dev/null
 
 # Destructive deletion on an MFA-protected account requires second-factor proof.
