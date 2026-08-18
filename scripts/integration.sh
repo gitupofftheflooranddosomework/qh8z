@@ -98,11 +98,36 @@ link_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["link"]["id"])
 redirect_1=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/ci-link)
 [[ "$redirect_1" == "https://example.com/one" ]]
 
+# Simulate cross-service divergence by mutating Shlink behind QH8Z. The
+# reconciliation pass must restore the policy-checked QH8Z destination.
+curl -fsS -X PATCH http://localhost:8080/rest/v3/short-urls/ci-link \
+  -H "X-Api-Key: ${SHLINK_API_KEY}" -H 'content-type: application/json' \
+  -d '{"longUrl":"https://example.com/diverged"}' >/tmp/qh8z-diverged.json
+diverged_redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/ci-link)
+[[ "$diverged_redirect" == "https://example.com/diverged" ]]
+docker compose exec -T app node --input-type=module -e "import { reconcileDueLinks } from './src/consistency.mjs'; import { pool } from './src/db.mjs'; const r=await reconcileDueLinks({confirmAfterMs:0,batch:100}); await pool.end(); if(r.repaired<1) process.exit(1);"
+repaired_redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/ci-link)
+[[ "$repaired_redirect" == "https://example.com/one" ]]
+
 curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -X PATCH -H 'content-type: application/json' -d '{"longUrl":"https://example.com/two","title":"Updated CI link"}' "http://localhost:3000/api/links/${link_id}" >/tmp/qh8z-edited.json
 redirect_2=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/ci-link)
 [[ "$redirect_2" == "https://example.com/two" ]]
 curl -fsS -b "$USER_JAR" "http://localhost:3000/api/links/${link_id}/stats" >/tmp/qh8z-stats.json
 curl -fsS -b "$USER_JAR" "http://localhost:3000/api/links/${link_id}/qr.svg" | grep -q '<svg'
+
+# A tracked link that disappears from Shlink must be disabled in QH8Z rather
+# than remaining falsely active in the ownership database.
+missing=$(curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -H 'content-type: application/json' -d '{"longUrl":"https://example.com/missing","customSlug":"ci-missing"}' http://localhost:3000/api/links)
+printf '%s' "$missing" >/tmp/qh8z-missing-link.json
+curl -fsS -X DELETE http://localhost:8080/rest/v3/short-urls/ci-missing -H "X-Api-Key: ${SHLINK_API_KEY}" >/dev/null
+docker compose exec -T app node --input-type=module -e "import { reconcileDueLinks } from './src/consistency.mjs'; import { pool } from './src/db.mjs'; const r=await reconcileDueLinks({confirmAfterMs:0,batch:100}); await pool.end(); if(r.disabled<1) process.exit(1);"
+curl -fsS -b "$USER_JAR" http://localhost:3000/api/links >/tmp/qh8z-links-after-missing.json
+python3 - <<'PY'
+import json
+with open('/tmp/qh8z-links-after-missing.json') as f: data=json.load(f)
+link=next(x for x in data['links'] if x['short_code']=='ci-missing')
+assert link['disabled_at'] is not None
+PY
 
 # Public abuse intake and admin moderation.
 curl -fsS -H 'content-type: application/json' -d '{"shortCode":"ci-link","email":"reporter@example.com","reason":"Integration test report","category":"phishing"}' http://localhost:3000/api/report >/tmp/qh8z-report.json
