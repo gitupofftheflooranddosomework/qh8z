@@ -222,7 +222,15 @@ export async function restoreLink(user, link) {
   };
 
   await validateDestination(fields.longUrl, user.id, link.id);
-  await createShortUrl({ longUrl: fields.longUrl, customSlug: link.short_code, title: fields.title, tags: fields.tags, validUntil: fields.expiresAt, maxVisits: fields.maxVisits });
+  await createShortUrl({
+    longUrl: fields.longUrl,
+    customSlug: link.short_code,
+    title: fields.title,
+    tags: fields.tags,
+    validUntil: fields.expiresAt,
+    maxVisits: fields.maxVisits,
+    allowOwnedLinkId: link.id,
+  });
   try {
     const { rows } = await pool.query(
       'UPDATE links SET disabled_at=NULL,expires_at=$1,max_visits=$2,updated_at=NOW() WHERE id=$3 RETURNING *',
