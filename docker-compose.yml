@@ -61,6 +61,7 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
+      QH8Z_DOMAIN: ${QH8Z_DOMAIN:-localhost}
       DATABASE_URL: postgresql://qh8z_app:${QH8Z_DB_PASSWORD}@db:5432/qh8z
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       PUBLIC_SHORT_BASE_URL: ${PUBLIC_SHORT_BASE_URL:-http://localhost:8080}
