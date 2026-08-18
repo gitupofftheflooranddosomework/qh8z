@@ -2,34 +2,32 @@
 
 **Short links. Long lifespan.**
 
-QH8Z is a commercial link-shortening product for `qh8z.com`. It combines the strongest parts of two mature open-source approaches without running two competing redirect stacks:
+QH8Z is a commercial link-management product for `qh8z.com`. It combines the strongest parts of two mature open-source approaches without running two competing redirect stacks:
 
-- **Shlink v5.1.5** is the replaceable redirect and visit-tracking engine.
-- **Kutt v3.2.6** is a product/UX feature donor and reference for the multi-user shortener experience.
-- **QH8Z-owned code** provides the customer-facing brand, accounts, sessions, plans, billing, link ownership, QR delivery, destination reputation checks, abuse reporting, moderation, and product UI.
+- **Shlink v5.1.5** is the isolated, replaceable redirect and visit-tracking engine.
+- **Kutt v3.2.6** is an MIT-licensed product/UX donor and reference.
+- **QH8Z-owned code** provides identity, email verification/recovery, plans, billing, link ownership, QR delivery, destination policy, abuse controls, moderation, and the complete customer-facing brand.
 
-The result is intentionally a QH8Z product rather than a skin on either upstream project.
+## Public-launch feature set
 
-## What works
-
-- QH8Z-branded marketing site and responsive dashboard
-- account registration, login, logout, password changes, data export and deletion
-- server-side sessions with HttpOnly/SameSite cookies and bcrypt password hashing
+- QH8Z marketing site and responsive dashboard
+- account registration/login/logout, verified email, password recovery/change, data export and deletion
+- one-time hashed verification/reset tokens; recovery tokens stay in URL fragments
+- TOTP two-factor authentication with encrypted secrets and hashed one-time recovery codes; required for public administrators
+- Secure HttpOnly production sessions and cookie-authenticated same-origin protection
+- Cloudflare Turnstile on public auth/recovery/abuse forms
 - authenticated short-link creation and custom aliases
-- destination editing and redirect disabling
-- Google Web Risk destination checks on creation and edits, with fail-closed production mode
-- visit totals with bot/non-bot summaries plus raw per-link visit API
-- per-link QR codes
-- Free and Pro plan limits
-- optional Stripe Checkout, Billing Portal and webhook plan activation
-- public abuse reporting, admin moderation and audit events
-- protected one-time admin bootstrap flow
-- request rate limits, origin checks and security headers
-- PostgreSQL persistence with isolated QH8Z/Shlink databases
-- production Caddy reverse proxy with automatic HTTPS
-- backup/restore scripts
-- GitHub Actions unit/syntax CI plus a full Docker integration smoke test
-- Dependabot and preserved upstream MIT notices
+- reserved-route and local/private-network destination protection
+- Google Web Risk checks on creation and edits, plus recurring active-link rechecks with fail-closed public mode
+- editable destinations, redirect disabling and account suspension
+- visit analytics with anonymized stored visitor addresses and per-link QR codes
+- Free/Pro plan limits and optional Stripe subscriptions
+- abuse reporting, moderation queue, admin user controls and audit events
+- PostgreSQL with isolated QH8Z/Shlink databases
+- Caddy automatic HTTPS, security headers and access logging
+- readiness/liveness endpoints, backup/restore scripts and production pre/post-deploy checks
+- CI, dependency audit, Dependabot and full Docker end-to-end smoke tests
+- MIT notices/provenance for upstream code
 
 ## Architecture
 
@@ -49,7 +47,7 @@ The result is intentionally a QH8Z product rather than a skin on either upstream
                     qh8z DB + shlink DB
 ```
 
-Browser clients never receive the Shlink API key. QH8Z calls Shlink over the private container network. Redirect requests bypass the Node product app and go directly from Caddy to Shlink.
+Redirects bypass the Node product layer: visitors go Caddy -> Shlink -> destination. Customer/business operations go through QH8Z, which talks to Shlink only over its documented REST API.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -57,50 +55,41 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ```bash
 cp .env.example .env
-# generate unique values for POSTGRES_PASSWORD and SHLINK_API_KEY
 openssl rand -hex 32
 docker compose up --build
 ```
 
-Open QH8Z at `http://localhost:3000`. Local short redirects are served by Shlink at `http://localhost:8080`.
+Open the product at `http://localhost:3000` and local redirects at `http://localhost:8080`.
 
-## Production
-
-Start from the production template instead of adapting the development file:
+## Public deployment
 
 ```bash
 cp .env.production.example .env
+# fill real secrets and service credentials
+bash scripts/preflight.sh .env
+docker compose --env-file .env --profile production up -d --build
+bash scripts/bootstrap-admin.sh .env
+# sign in and enroll administrator MFA
+bash scripts/postdeploy.sh https://qh8z.com
 ```
 
-Set strong unique `POSTGRES_PASSWORD`, `SHLINK_API_KEY`, and `ADMIN_BOOTSTRAP_SECRET`; set the real `ADMIN_EMAIL`; configure a Google Web Risk API key; then point `qh8z.com` and `www.qh8z.com` at the host and run:
+`PUBLIC_LAUNCH_MODE=true` deliberately refuses a healthy launch if critical protections such as HTTPS/secure cookies, verified-email mode, Web Risk, Turnstile, SMTP, legal operator metadata, or administrator MFA are missing.
 
-```bash
-docker compose --profile production up -d --build
-```
-
-The app and Shlink development ports bind only to loopback. Caddy is the intended public entry point on ports 80/443.
-
-Read [`docs/LAUNCH.md`](docs/LAUNCH.md) for the admin bootstrap, smoke test, backups, Stripe, and public-launch checklist.
+Read [`docs/LAUNCH.md`](docs/LAUNCH.md) before opening signup publicly.
 
 ## Monetization
 
-Stripe is optional. When `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `STRIPE_PRO_PRICE_ID` are configured, the dashboard exposes subscription checkout and customer billing management.
+Stripe is optional until paid plans are enabled. Stripe configuration is intentionally all-or-none.
 
-| Plan | Active links | Price shown by QH8Z |
+| Plan | Active links | Listed price |
 |---|---:|---:|
 | Free | 25 | $0 |
 | Pro | 5,000 | $6/month |
 
-## Security / abuse
+## Security and abuse
 
-QH8Z intentionally does **not** provide anonymous shortening. Creating a redirect requires a QH8Z account. Shlink's administrative API remains private to the product service. Production link creation is designed to fail closed when the destination reputation service is unavailable.
-
-Before broad open signup, still establish monitored abuse/security mailboxes, off-host backup retention and restore drills, production observability, and jurisdiction-specific legal review.
-
-See [`SECURITY.md`](SECURITY.md).
+QH8Z does not support anonymous link creation. See [`SECURITY.md`](SECURITY.md), the public `/security` page, and `/.well-known/security.txt`.
 
 ## Open-source provenance
 
-Both Shlink and Kutt are MIT-licensed upstream projects. QH8Z preserves their license texts in [`licenses/`](licenses/) and documents provenance in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
-
-QH8Z's original product code does **not** currently declare a project-wide open-source license.
+Shlink and Kutt are MIT-licensed upstream projects. QH8Z preserves relevant license texts in [`licenses/`](licenses/) and provenance in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). QH8Z's original product code does not currently declare a project-wide open-source license.
