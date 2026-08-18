@@ -8,9 +8,7 @@ import { normalizeHttpUrl, normalizeSlug, cleanTitle } from './validation.mjs';
 
 const ADVANCED_FEATURE_ERROR = 'Expiry, max-visit controls, bulk creation, and developer API access require QH8Z Pro.';
 
-export function isPro(user) {
-  return user?.plan === 'pro';
-}
+export function isPro(user) { return user?.plan === 'pro'; }
 
 export function requireProFeature(user) {
   if (isPro(user)) return;
@@ -28,6 +26,14 @@ export function normalizeTags(value) {
     if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(tag)) throw Object.assign(new Error(`Invalid tag: ${tag}`), { status: 400, code: 'invalid_tag' });
   }
   return tags;
+}
+
+export function normalizePagination(query = {}) {
+  const rawLimit = Number(query.limit);
+  const rawOffset = Number(query.offset);
+  const limit = Number.isSafeInteger(rawLimit) && rawLimit >= 1 ? Math.min(rawLimit, 100) : 25;
+  const offset = Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? Math.min(rawOffset, 1_000_000) : 0;
+  return { limit, offset };
 }
 
 function normalizeNotes(value) {
@@ -55,12 +61,7 @@ function normalizeMaxVisits(value) {
 export function publicLink(row) {
   const expired = Boolean(row.expires_at && new Date(row.expires_at).getTime() <= Date.now());
   const state = row.disabled_at ? 'disabled' : row.archived_at ? 'archived' : expired ? 'expired' : 'active';
-  return {
-    ...row,
-    tags: Array.isArray(row.tags) ? row.tags : [],
-    short_url: `${config.publicShortBaseUrl}/${row.short_code}`,
-    state,
-  };
+  return { ...row, tags: Array.isArray(row.tags) ? row.tags : [], short_url: `${config.publicShortBaseUrl}/${row.short_code}`, state };
 }
 
 export async function validateDestination(longUrl, userId, targetId = null) {
@@ -87,7 +88,6 @@ export function normalizeLinkFields(input = {}, existing = null, user = null) {
   const tags = input.tags === undefined && existing ? (existing.tags || []) : normalizeTags(input.tags);
   const expiresAt = input.expiresAt === undefined && existing ? existing.expires_at : normalizeExpiresAt(input.expiresAt);
   const maxVisits = input.maxVisits === undefined && existing ? existing.max_visits : normalizeMaxVisits(input.maxVisits);
-
   const changingExpiry = input.expiresAt !== undefined && Boolean(expiresAt);
   const changingMaxVisits = input.maxVisits !== undefined && Boolean(maxVisits);
   if ((changingExpiry || changingMaxVisits) && user && !isPro(user)) requireProFeature(user);
@@ -114,14 +114,7 @@ export async function createLink(user, input = {}) {
   await friendlyPlanLimit(user);
   const fields = normalizeLinkFields(input, null, user);
   await validateDestination(fields.longUrl, user.id);
-  const upstream = await createShortUrl({
-    longUrl: fields.longUrl,
-    customSlug: fields.customSlug,
-    title: fields.title,
-    tags: fields.tags,
-    validUntil: fields.expiresAt,
-    maxVisits: fields.maxVisits,
-  });
+  const upstream = await createShortUrl({ longUrl: fields.longUrl, customSlug: fields.customSlug, title: fields.title, tags: fields.tags, validUntil: fields.expiresAt, maxVisits: fields.maxVisits });
   const shortCode = upstream.shortCode;
   if (!shortCode) throw new Error('Shlink did not return a shortCode');
   const id = crypto.randomUUID();
@@ -145,27 +138,18 @@ export async function getOwnedLink(userId, id) {
 }
 
 export async function listLinks(userId, query = {}) {
-  const limit = Math.min(Math.max(Number(query.limit) || 25, 1), 100);
-  const offset = Math.max(Number(query.offset) || 0, 0);
+  const { limit, offset } = normalizePagination(query);
   const q = String(query.q || '').trim().slice(0, 200);
   const status = ['all','active','disabled','archived','expired'].includes(String(query.status || 'all')) ? String(query.status || 'all') : 'all';
   const tag = String(query.tag || '').trim().toLowerCase().slice(0, 32);
   const params = [userId];
   const where = ['user_id=$1'];
-
-  if (q) {
-    params.push(`%${q}%`);
-    where.push(`(short_code ILIKE $${params.length} OR long_url ILIKE $${params.length} OR COALESCE(title,'') ILIKE $${params.length} OR COALESCE(notes,'') ILIKE $${params.length})`);
-  }
-  if (tag) {
-    params.push(JSON.stringify([tag]));
-    where.push(`tags @> $${params.length}::jsonb`);
-  }
+  if (q) { params.push(`%${q}%`); where.push(`(short_code ILIKE $${params.length} OR long_url ILIKE $${params.length} OR COALESCE(title,'') ILIKE $${params.length} OR COALESCE(notes,'') ILIKE $${params.length})`); }
+  if (tag) { params.push(JSON.stringify([tag])); where.push(`tags @> $${params.length}::jsonb`); }
   if (status === 'active') where.push('disabled_at IS NULL AND archived_at IS NULL AND (expires_at IS NULL OR expires_at>NOW())');
   if (status === 'disabled') where.push('disabled_at IS NOT NULL');
   if (status === 'archived') where.push('archived_at IS NOT NULL AND disabled_at IS NULL');
   if (status === 'expired') where.push('disabled_at IS NULL AND expires_at IS NOT NULL AND expires_at<=NOW()');
-
   const count = await pool.query(`SELECT COUNT(*)::int AS total FROM links WHERE ${where.join(' AND ')}`, params);
   params.push(limit, offset);
   const { rows } = await pool.query(
@@ -180,13 +164,7 @@ export async function updateLink(user, link, input = {}) {
   if (link.disabled_at) throw Object.assign(new Error('Restore the link before editing it.'), { status: 409, code: 'link_disabled' });
   const fields = normalizeLinkFields(input, link, user);
   await validateDestination(fields.longUrl, user.id, link.id);
-  await editShortUrl(link.short_code, {
-    longUrl: fields.longUrl,
-    title: fields.title,
-    tags: fields.tags,
-    validUntil: fields.expiresAt,
-    maxVisits: fields.maxVisits,
-  });
+  await editShortUrl(link.short_code, { longUrl: fields.longUrl, title: fields.title, tags: fields.tags, validUntil: fields.expiresAt, maxVisits: fields.maxVisits });
   const { rows } = await pool.query(
     `UPDATE links SET long_url=$1,title=$2,notes=$3,tags=$4::jsonb,expires_at=$5,max_visits=$6,updated_at=NOW()
      WHERE id=$7 RETURNING *`,
@@ -207,35 +185,15 @@ export async function disableLink(user, link, eventType = 'link.disabled') {
 export async function restoreLink(user, link) {
   if (!link.disabled_at) return publicLink(link);
   await friendlyPlanLimit(user);
-
   const storedExpiry = link.expires_at ? new Date(link.expires_at) : null;
   const expiryStillUsable = storedExpiry && Number.isFinite(storedExpiry.getTime()) && storedExpiry.getTime() > Date.now() + 60_000;
   const restoreExpiry = isPro(user) && expiryStillUsable ? storedExpiry.toISOString() : null;
   const restoreMaxVisits = isPro(user) ? link.max_visits : null;
-  const fields = {
-    longUrl: normalizeHttpUrl(link.long_url),
-    title: link.title,
-    notes: link.notes,
-    tags: Array.isArray(link.tags) ? link.tags : [],
-    expiresAt: restoreExpiry,
-    maxVisits: restoreMaxVisits,
-  };
-
+  const fields = { longUrl: normalizeHttpUrl(link.long_url), title: link.title, notes: link.notes, tags: Array.isArray(link.tags) ? link.tags : [], expiresAt: restoreExpiry, maxVisits: restoreMaxVisits };
   await validateDestination(fields.longUrl, user.id, link.id);
-  await createShortUrl({
-    longUrl: fields.longUrl,
-    customSlug: link.short_code,
-    title: fields.title,
-    tags: fields.tags,
-    validUntil: fields.expiresAt,
-    maxVisits: fields.maxVisits,
-    allowOwnedLinkId: link.id,
-  });
+  await createShortUrl({ longUrl: fields.longUrl, customSlug: link.short_code, title: fields.title, tags: fields.tags, validUntil: fields.expiresAt, maxVisits: fields.maxVisits, allowOwnedLinkId: link.id });
   try {
-    const { rows } = await pool.query(
-      'UPDATE links SET disabled_at=NULL,expires_at=$1,max_visits=$2,updated_at=NOW() WHERE id=$3 RETURNING *',
-      [fields.expiresAt, fields.maxVisits, link.id]
-    );
+    const { rows } = await pool.query('UPDATE links SET disabled_at=NULL,expires_at=$1,max_visits=$2,updated_at=NOW() WHERE id=$3 RETURNING *', [fields.expiresAt, fields.maxVisits, link.id]);
     await audit(user.id, 'link.restored', link.id, { shortCode: link.short_code, advancedControlsRetained: Boolean(fields.expiresAt || fields.maxVisits) });
     return publicLink(rows[0]);
   } catch (error) {
@@ -245,10 +203,7 @@ export async function restoreLink(user, link) {
 }
 
 export async function setArchived(user, link, archived) {
-  const { rows } = await pool.query(
-    `UPDATE links SET archived_at=CASE WHEN $1 THEN COALESCE(archived_at,NOW()) ELSE NULL END,updated_at=NOW() WHERE id=$2 RETURNING *`,
-    [Boolean(archived), link.id]
-  );
+  const { rows } = await pool.query(`UPDATE links SET archived_at=CASE WHEN $1 THEN COALESCE(archived_at,NOW()) ELSE NULL END,updated_at=NOW() WHERE id=$2 RETURNING *`, [Boolean(archived), link.id]);
   await audit(user.id, archived ? 'link.archived' : 'link.unarchived', link.id, { shortCode: link.short_code });
   return publicLink(rows[0]);
 }
@@ -268,20 +223,37 @@ export async function bulkCreateLinks(user, items) {
   return { results, created: results.filter(x => x.ok).length, failed: results.filter(x => !x.ok).length };
 }
 
+function spreadsheetSafe(value) {
+  let text = String(value ?? '');
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return text;
+}
+
 export function linksToCsv(rows) {
   const columns = ['short_url','long_url','title','tags','notes','state','created_at','expires_at','max_visits'];
-  const quote = value => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const quote = value => `"${spreadsheetSafe(value).replaceAll('"', '""')}"`;
   const lines = [columns.join(',')];
   for (const raw of rows) {
     const row = publicLink(raw);
-    lines.push([
-      row.short_url,row.long_url,row.title,(row.tags || []).join('|'),row.notes,row.state,row.created_at,row.expires_at,row.max_visits,
-    ].map(quote).join(','));
+    lines.push([row.short_url,row.long_url,row.title,(row.tags || []).join('|'),row.notes,row.state,row.created_at,row.expires_at,row.max_visits].map(quote).join(','));
   }
   return `${lines.join('\n')}\n`;
 }
 
 export async function getLinkStats(link) {
+  if (link.disabled_at) {
+    return {
+      shortCode: link.short_code,
+      shortUrl: `${config.publicShortBaseUrl}/${link.short_code}`,
+      visits: { total: 0, nonBots: 0, bots: 0 },
+      title: link.title,
+      longUrl: link.long_url,
+      maxVisits: link.max_visits,
+      validUntil: link.expires_at,
+      tags: link.tags || [],
+      unavailable: true,
+    };
+  }
   const upstream = await getShortUrl(link.short_code);
   return {
     shortCode: link.short_code,
