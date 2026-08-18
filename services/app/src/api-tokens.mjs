@@ -7,9 +7,23 @@ const ALLOWED_SCOPES = new Set(['links:read', 'links:write']);
 
 const hashToken = token => crypto.createHash('sha256').update(String(token || '')).digest('hex');
 
-function normalizeScopes(scopes) {
-  const input = Array.isArray(scopes) ? scopes : ['links:read', 'links:write'];
-  const normalized = [...new Set(input.map(x => String(x || '').trim()).filter(x => ALLOWED_SCOPES.has(x)))];
+export function normalizeApiScopes(scopes) {
+  if (scopes === undefined || scopes === null) return ['links:read', 'links:write'];
+  if (!Array.isArray(scopes)) {
+    const error = new Error('API token scopes must be an array.');
+    error.status = 400;
+    error.code = 'invalid_api_scopes';
+    throw error;
+  }
+  const requested = scopes.map(scope => String(scope || '').trim()).filter(Boolean);
+  const invalid = requested.filter(scope => !ALLOWED_SCOPES.has(scope));
+  if (invalid.length) {
+    const error = new Error(`Unsupported API token scope: ${invalid[0]}`);
+    error.status = 400;
+    error.code = 'invalid_api_scope';
+    throw error;
+  }
+  const normalized = [...new Set(requested)];
   if (!normalized.length) normalized.push('links:read');
   return normalized;
 }
@@ -21,7 +35,7 @@ export async function createApiToken(userId, { name, scopes, expiresInDays = 365
   const tokenHash = hashToken(raw);
   const prefix = raw.slice(0, TOKEN_PREFIX.length + 8);
   const id = crypto.randomUUID();
-  const normalizedScopes = normalizeScopes(scopes);
+  const normalizedScopes = normalizeApiScopes(scopes);
   const { rows } = await pool.query(
     `INSERT INTO api_tokens(id,user_id,name,token_hash,token_prefix,scopes,expires_at)
      VALUES($1,$2,$3,$4,$5,$6::jsonb,NOW()+($7::text || ' days')::interval)
@@ -67,6 +81,12 @@ export async function authenticateApiToken(req, res, next) {
     if (user.suspended_at) return res.status(403).json({ error: 'account_suspended' });
     if (config.emailVerificationRequired && !user.email_verified_at) return res.status(403).json({ error: 'email_verification_required' });
     if (user.terms_version !== config.termsVersion) return res.status(403).json({ error: 'terms_acceptance_required' });
+    if (user.plan !== 'pro') {
+      return res.status(402).json({
+        error: 'feature_requires_pro',
+        message: 'Developer API access requires QH8Z Pro. Existing tokens remain stored and become usable again if Pro is restored.',
+      });
+    }
 
     req.user = user;
     req.apiToken = { id: user.api_token_id, scopes: Array.isArray(user.scopes) ? user.scopes : [] };
