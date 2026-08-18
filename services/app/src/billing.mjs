@@ -95,10 +95,17 @@ export async function handleStripeWebhook(rawBody, signature) {
   }
 }
 
-export async function cancelBillingForUser(user) {
-  if (!stripe || !user?.stripe_customer_id) return;
-  const subscriptions = await stripe.subscriptions.list({ customer: user.stripe_customer_id, status: 'all', limit: 100 });
-  for (const subscription of subscriptions.data) {
-    if (!['canceled', 'incomplete_expired'].includes(subscription.status)) await stripe.subscriptions.cancel(subscription.id);
+export async function cancelSubscriptionsForCustomer(stripeClient, customerId) {
+  let canceled = 0;
+  for await (const subscription of stripeClient.subscriptions.list({ customer: customerId, status: 'all', limit: 100 })) {
+    if (['canceled', 'incomplete_expired'].includes(subscription.status)) continue;
+    await stripeClient.subscriptions.cancel(subscription.id);
+    canceled += 1;
   }
+  return canceled;
+}
+
+export async function cancelBillingForUser(user) {
+  if (!stripe || !user?.stripe_customer_id) return 0;
+  return cancelSubscriptionsForCustomer(stripe, user.stripe_customer_id);
 }
