@@ -49,13 +49,15 @@ test -s "$tmp/shlink.dump"
 [[ "$app_was_running" == "1" ]] && "${compose[@]}" stop app >/dev/null
 [[ "$shlink_was_running" == "1" ]] && "${compose[@]}" stop shlink >/dev/null
 
-"${compose[@]}" exec -T db dropdb -U qh8z --if-exists qh8z
-"${compose[@]}" exec -T db createdb -U qh8z -O qh8z qh8z
-cat "$tmp/qh8z.dump" | "${compose[@]}" exec -T db pg_restore -U qh8z -d qh8z --no-owner --no-acl --exit-on-error
+"${compose[@]}" exec -T db dropdb -U postgres --if-exists qh8z
+"${compose[@]}" exec -T db createdb -U postgres -O qh8z_app qh8z
+"${compose[@]}" exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'REVOKE CONNECT ON DATABASE qh8z FROM PUBLIC; GRANT CONNECT ON DATABASE qh8z TO qh8z_app;' >/dev/null
+cat "$tmp/qh8z.dump" | "${compose[@]}" exec -T db pg_restore -U qh8z_app -d qh8z --no-owner --no-acl --exit-on-error
 
-"${compose[@]}" exec -T db dropdb -U qh8z --if-exists shlink
-"${compose[@]}" exec -T db createdb -U qh8z -O qh8z shlink
-cat "$tmp/shlink.dump" | "${compose[@]}" exec -T db pg_restore -U qh8z -d shlink --no-owner --no-acl --exit-on-error
+"${compose[@]}" exec -T db dropdb -U postgres --if-exists shlink
+"${compose[@]}" exec -T db createdb -U postgres -O shlink_app shlink
+"${compose[@]}" exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'REVOKE CONNECT ON DATABASE shlink FROM PUBLIC; GRANT CONNECT ON DATABASE shlink TO shlink_app;' >/dev/null
+cat "$tmp/shlink.dump" | "${compose[@]}" exec -T db pg_restore -U shlink_app -d shlink --no-owner --no-acl --exit-on-error
 
 # Restart the exact service set that was running before the restore without
 # allowing Compose to recreate healthy dependencies.
