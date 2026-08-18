@@ -28,9 +28,21 @@ export function normalizeApiScopes(scopes) {
   return normalized;
 }
 
-export async function createApiToken(userId, { name, scopes, expiresInDays = 365 } = {}) {
+export function normalizeApiTokenExpiryDays(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return 365;
+  const days = Number(value);
+  if (!Number.isSafeInteger(days) || days < 1 || days > 3650) {
+    const error = new Error('API token expiry must be an integer from 1 to 3,650 days.');
+    error.status = 400;
+    error.code = 'invalid_api_token_expiry';
+    throw error;
+  }
+  return days;
+}
+
+export async function createApiToken(userId, { name, scopes, expiresInDays } = {}) {
   const cleanName = String(name || 'API token').trim().slice(0, 80) || 'API token';
-  const days = Math.min(Math.max(Number(expiresInDays) || 365, 1), 3650);
+  const days = normalizeApiTokenExpiryDays(expiresInDays);
   const raw = `${TOKEN_PREFIX}${crypto.randomBytes(32).toString('base64url')}`;
   const tokenHash = hashToken(raw);
   const prefix = raw.slice(0, TOKEN_PREFIX.length + 8);
