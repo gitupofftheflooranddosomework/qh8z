@@ -30,10 +30,11 @@
 
 ## Milestone 4 — serious link management
 
-- [ ] Custom domains and DNS verification
-- [ ] Link expiration and disabling
+- [x] Custom domains and DNS verification
+- [x] Link disabling
+- [ ] Link expiration
 - [ ] Tags
-- [ ] QR codes
+- [x] QR codes
 - [ ] Bulk import/export
 - [ ] UTM builder
 - [ ] Destination edit history
@@ -45,19 +46,21 @@
 - [x] Referrer capture
 - [ ] Browser / OS / device classification
 - [ ] Country / region enrichment with privacy review
-- [ ] Time-series rollups
-- [ ] Retention tiers
-- [ ] Dashboard and CSV export
+- [x] Daily time-series analytics
+- [x] Plan-based retention windows
+- [x] Dashboard
+- [ ] CSV export
 
 ## Milestone 6 — monetization
 
-- [ ] Plan and entitlement model
-- [ ] Billing provider abstraction
-- [ ] Usage metering
-- [ ] Free and paid tiers
-- [ ] Custom-domain and analytics-retention entitlements
-- [ ] Trials and grace periods
-- [ ] Billing portal
+- [x] Plan and entitlement model
+- [x] Billing provider abstraction
+- [x] Usage metering
+- [x] Free and paid tiers
+- [x] Custom-domain and analytics-retention entitlements
+- [ ] Trials
+- [x] Past-due grace behavior
+- [x] Billing portal
 
 ## Milestone 7 — abuse resistance and launch readiness
 

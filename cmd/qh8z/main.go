@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gitupofftheflooranddosomework/qh8z/internal/dnsverify"
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/mailer"
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/reputation"
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/storage"
@@ -23,6 +24,7 @@ type app struct {
 	store         storage.Store
 	mailer        mailer.Mailer
 	reputation    reputation.Checker
+	dnsVerifier   dnsverify.Verifier
 	safety        safetyConfig
 	baseURL       string
 	logger        *slog.Logger
@@ -53,11 +55,16 @@ func main() {
 		logger.Error("safety startup failed", "error", err)
 		os.Exit(1)
 	}
+	if err := configureBilling(environment); err != nil {
+		logger.Error("billing startup failed", "error", err)
+		os.Exit(1)
+	}
 
 	a := &app{
 		store:         store,
 		mailer:        email,
 		reputation:    checker,
+		dnsVerifier:   dnsverify.System{},
 		safety:        safety,
 		baseURL:       baseURL,
 		logger:        logger,
@@ -135,6 +142,8 @@ func (a *app) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("GET /readyz", a.ready)
+	mux.HandleFunc("GET /dashboard", a.dashboard)
+	mux.HandleFunc("GET /assets/dashboard.js", a.dashboardJS)
 
 	mux.Handle("POST /api/v1/auth/register", a.limitIPHandler("register", 10, time.Hour, http.HandlerFunc(a.register)))
 	mux.Handle("POST /api/v1/auth/login", a.limitIPHandler("login", 60, 15*time.Minute, http.HandlerFunc(a.login)))
@@ -160,12 +169,36 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/admin/links/{slug}/suspend", a.suspendLink)
 	mux.HandleFunc("POST /api/v1/admin/links/{slug}/unsuspend", a.unsuspendLink)
 
+	mux.HandleFunc("GET /api/v1/plans", a.listPlans)
+	mux.HandleFunc("GET /api/v1/usage", a.usage)
+	mux.HandleFunc("GET /api/v1/analytics", a.analyticsDashboard)
+	mux.HandleFunc("GET /api/v1/billing", a.billingStatus)
+	mux.HandleFunc("POST /api/v1/billing/checkout", a.createCheckout)
+	mux.HandleFunc("POST /api/v1/billing/portal", a.createBillingPortal)
+	mux.HandleFunc("POST /api/v1/billing/webhook", a.billingWebhook)
+	mux.HandleFunc("GET /api/v1/domains", a.listCustomDomains)
+	mux.HandleFunc("POST /api/v1/domains", a.createCustomDomain)
+	mux.HandleFunc("POST /api/v1/domains/{id}/verify", a.verifyCustomDomain)
+	mux.HandleFunc("DELETE /api/v1/domains/{id}", a.deleteCustomDomain)
+
+	mux.HandleFunc("GET /api/v1/links", a.listLinks)
 	mux.HandleFunc("POST /api/v1/links", a.createLink)
 	mux.HandleFunc("GET /api/v1/links/{slug}", a.getLink)
+	mux.HandleFunc("PATCH /api/v1/links/{slug}", a.updateLink)
+	mux.HandleFunc("DELETE /api/v1/links/{slug}", a.deleteLink)
 	mux.HandleFunc("GET /api/v1/links/{slug}/stats", a.linkStats)
+	mux.HandleFunc("GET /api/v1/links/{slug}/qr.png", a.linkQRCode)
 	mux.HandleFunc("GET /{slug}", a.redirect)
 	mux.HandleFunc("GET /", a.home)
-	return a.apiRateLimit(mux)
+
+	limited := a.apiRateLimit(mux)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/billing/webhook" {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		limited.ServeHTTP(w, r)
+	})
 }
 
 func (a *app) health(w http.ResponseWriter, _ *http.Request) {
@@ -189,7 +222,7 @@ func (a *app) home(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>qh8z</title><style>body{font-family:system-ui,sans-serif;background:#0b0d10;color:#fff;min-height:100vh;display:grid;place-items:center;margin:0}main{width:min(720px,90vw)}h1{font-size:72px;margin:0}code{background:#181c21;padding:.2em .4em;border-radius:6px}</style></head><body><main><h1>qh8z</h1><p>Fast links. Durable analytics. Secure accounts and workspace ownership.</p><p>The production dashboard is being built. The versioned API is available under <code>/api/v1</code>.</p></main></body></html>`))
+	_, _ = w.Write([]byte(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>qh8z</title><style>body{font-family:system-ui,sans-serif;background:#0b0d10;color:#fff;min-height:100vh;display:grid;place-items:center;margin:0}main{width:min(720px,90vw)}h1{font-size:72px;margin:0}a{color:white}code{background:#181c21;padding:.2em .4em;border-radius:6px}</style></head><body><main><h1>qh8z</h1><p>Fast links. Durable analytics. Secure accounts and workspace ownership.</p><p><a href="/dashboard">Open dashboard</a> · API available under <code>/api/v1</code>.</p></main></body></html>`))
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, value any) bool {

@@ -104,10 +104,13 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 }
 
 func (s *Store) CreateLink(ctx context.Context, link core.Link) error {
+	if link.UpdatedAt.IsZero() {
+		link.UpdatedAt = link.CreatedAt
+	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO links (slug, destination_url, created_at, visit_count, workspace_id, created_by_user_id)
-VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''))`,
-		link.Slug, link.URL, link.CreatedAt, link.Visits, link.WorkspaceID, link.CreatedByUserID,
+INSERT INTO links (slug, destination_url, created_at, updated_at, visit_count, workspace_id, created_by_user_id, domain_id)
+VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''))`,
+		link.Slug, link.URL, link.CreatedAt, link.UpdatedAt, link.Visits, link.WorkspaceID, link.CreatedByUserID, link.DomainID,
 	)
 	if err == nil {
 		return nil
@@ -124,10 +127,26 @@ func (s *Store) CreateOwnedLink(ctx context.Context, link core.Link, audit core.
 		return fmt.Errorf("begin owned link create: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if link.DomainID != "" {
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `
+SELECT EXISTS (
+    SELECT 1 FROM custom_domains
+    WHERE id = $1 AND workspace_id = $2 AND verified_at IS NOT NULL
+)`, link.DomainID, link.WorkspaceID).Scan(&exists); err != nil {
+			return fmt.Errorf("validate link custom domain: %w", err)
+		}
+		if !exists {
+			return core.ErrNotFound
+		}
+	}
+	if link.UpdatedAt.IsZero() {
+		link.UpdatedAt = link.CreatedAt
+	}
 	_, err = tx.ExecContext(ctx, `
-INSERT INTO links (slug, destination_url, created_at, visit_count, workspace_id, created_by_user_id)
-VALUES ($1, $2, $3, $4, $5, $6)`,
-		link.Slug, link.URL, link.CreatedAt, link.Visits, link.WorkspaceID, link.CreatedByUserID,
+INSERT INTO links (slug, destination_url, created_at, updated_at, visit_count, workspace_id, created_by_user_id, domain_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''))`,
+		link.Slug, link.URL, link.CreatedAt, link.UpdatedAt, link.Visits, link.WorkspaceID, link.CreatedByUserID, link.DomainID,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -145,27 +164,13 @@ VALUES ($1, $2, $3, $4, $5, $6)`,
 }
 
 func (s *Store) GetLink(ctx context.Context, slug string) (core.Link, error) {
-	return scanLink(s.db.QueryRowContext(ctx, `
-SELECT slug, destination_url, COALESCE(workspace_id, ''), COALESCE(created_by_user_id, ''), created_at, visit_count, suspended_at, suspension_reason
-FROM links WHERE slug = $1`, slug))
+	return scanFullLink(s.db.QueryRowContext(ctx, fullLinkSelect+`
+WHERE l.slug = $1`, slug))
 }
 
 func (s *Store) GetWorkspaceLink(ctx context.Context, workspaceID, slug string) (core.Link, error) {
-	return scanLink(s.db.QueryRowContext(ctx, `
-SELECT slug, destination_url, COALESCE(workspace_id, ''), COALESCE(created_by_user_id, ''), created_at, visit_count, suspended_at, suspension_reason
-FROM links WHERE slug = $1 AND workspace_id = $2`, slug, workspaceID))
-}
-
-func scanLink(row *sql.Row) (core.Link, error) {
-	var link core.Link
-	err := row.Scan(&link.Slug, &link.URL, &link.WorkspaceID, &link.CreatedByUserID, &link.CreatedAt, &link.Visits, &link.SuspendedAt, &link.SuspensionReason)
-	if errors.Is(err, sql.ErrNoRows) {
-		return core.Link{}, core.ErrNotFound
-	}
-	if err != nil {
-		return core.Link{}, fmt.Errorf("get link: %w", err)
-	}
-	return link, nil
+	return scanFullLink(s.db.QueryRowContext(ctx, fullLinkSelect+`
+WHERE l.slug = $1 AND l.workspace_id = $2`, slug, workspaceID))
 }
 
 func (s *Store) RecordVisit(ctx context.Context, visit core.Visit) (int64, error) {
@@ -176,9 +181,11 @@ func (s *Store) RecordVisit(ctx context.Context, visit core.Visit) (int64, error
 	defer func() { _ = tx.Rollback() }()
 
 	var count int64
-	err = tx.QueryRowContext(ctx,
-		`UPDATE links SET visit_count = visit_count + 1 WHERE slug = $1 RETURNING visit_count`, visit.Slug,
-	).Scan(&count)
+	err = tx.QueryRowContext(ctx, `
+UPDATE links
+SET visit_count = visit_count + 1
+WHERE slug = $1 AND disabled_at IS NULL AND suspended_at IS NULL
+RETURNING visit_count`, visit.Slug).Scan(&count)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, core.ErrNotFound
 	}

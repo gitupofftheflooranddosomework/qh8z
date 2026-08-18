@@ -12,6 +12,7 @@ var (
 	ErrForbidden       = errors.New("forbidden")
 	ErrExpired         = errors.New("expired")
 	ErrEmailUnverified = errors.New("email unverified")
+	ErrLimitExceeded   = errors.New("limit exceeded")
 )
 
 const (
@@ -34,13 +35,28 @@ const (
 	AbuseStatusResolved = "resolved"
 )
 
+const (
+	PlanFree = "free"
+	PlanPro  = "pro"
+)
+
+const (
+	BillingStatusActive   = "active"
+	BillingStatusPastDue  = "past_due"
+	BillingStatusCanceled = "canceled"
+)
+
 type Link struct {
 	Slug             string     `json:"slug"`
 	URL              string     `json:"url"`
 	WorkspaceID      string     `json:"workspaceId,omitempty"`
 	CreatedByUserID  string     `json:"createdByUserId,omitempty"`
+	DomainID         string     `json:"domainId,omitempty"`
+	DomainHost       string     `json:"domainHost,omitempty"`
 	CreatedAt        time.Time  `json:"createdAt"`
+	UpdatedAt        time.Time  `json:"updatedAt"`
 	Visits           int64      `json:"visits"`
+	DisabledAt       *time.Time `json:"disabledAt,omitempty"`
 	SuspendedAt      *time.Time `json:"suspendedAt,omitempty"`
 	SuspensionReason string     `json:"suspensionReason,omitempty"`
 }
@@ -55,6 +71,62 @@ type Visit struct {
 type Stats struct {
 	TotalVisits int64   `json:"totalVisits"`
 	Recent      []Visit `json:"recentVisits"`
+}
+
+type AnalyticsDay struct {
+	Date   string `json:"date"`
+	Visits int64  `json:"visits"`
+}
+
+type AnalyticsLink struct {
+	Slug       string `json:"slug"`
+	URL        string `json:"url"`
+	DomainHost string `json:"domainHost,omitempty"`
+	Visits     int64  `json:"visits"`
+}
+
+type AnalyticsReferrer struct {
+	Referrer string `json:"referrer"`
+	Visits   int64  `json:"visits"`
+}
+
+type WorkspaceAnalytics struct {
+	From         time.Time           `json:"from"`
+	To           time.Time           `json:"to"`
+	TotalLinks   int64               `json:"totalLinks"`
+	ActiveLinks  int64               `json:"activeLinks"`
+	TotalVisits  int64               `json:"totalVisits"`
+	PeriodVisits int64               `json:"periodVisits"`
+	Daily        []AnalyticsDay      `json:"daily"`
+	TopLinks     []AnalyticsLink     `json:"topLinks"`
+	Referrers    []AnalyticsReferrer `json:"referrers"`
+}
+
+type CustomDomain struct {
+	ID                string     `json:"id"`
+	WorkspaceID       string     `json:"workspaceId"`
+	Host              string     `json:"host"`
+	VerificationToken string     `json:"-"`
+	VerifiedAt        *time.Time `json:"verifiedAt,omitempty"`
+	CreatedAt         time.Time  `json:"createdAt"`
+}
+
+type WorkspaceUsage struct {
+	WorkspaceID           string `json:"workspaceId"`
+	PlanCode              string `json:"plan"`
+	Links                 int64  `json:"links"`
+	CustomDomains         int64  `json:"customDomains"`
+	LinksCreatedThisMonth int64  `json:"linksCreatedThisMonth"`
+}
+
+type BillingState struct {
+	WorkspaceID            string     `json:"workspaceId"`
+	PlanCode               string     `json:"plan"`
+	Status                 string     `json:"status"`
+	ProviderCustomerID     string     `json:"-"`
+	ProviderSubscriptionID string     `json:"-"`
+	CurrentPeriodEnd       *time.Time `json:"currentPeriodEnd,omitempty"`
+	UpdatedAt              time.Time  `json:"updatedAt"`
 }
 
 type User struct {

@@ -18,8 +18,12 @@ type linkResponse struct {
 	URL              string     `json:"url"`
 	ShortURL         string     `json:"shortUrl"`
 	WorkspaceID      string     `json:"workspaceId"`
+	DomainID         string     `json:"domainId,omitempty"`
+	DomainHost       string     `json:"domainHost,omitempty"`
 	CreatedAt        time.Time  `json:"createdAt"`
+	UpdatedAt        time.Time  `json:"updatedAt"`
 	Visits           int64      `json:"visits"`
+	DisabledAt       *time.Time `json:"disabledAt,omitempty"`
 	SuspendedAt      *time.Time `json:"suspendedAt,omitempty"`
 	SuspensionReason string     `json:"suspensionReason,omitempty"`
 }
@@ -28,6 +32,7 @@ var slugPattern = regexp.MustCompile(`^[a-z0-9_-]{3,64}$`)
 var reserved = map[string]bool{
 	"api": true, "healthz": true, "readyz": true, "admin": true,
 	"login": true, "signup": true, "pricing": true, "verify-email": true,
+	"dashboard": true,
 }
 
 const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -38,9 +43,18 @@ func (a *app) createLink(w http.ResponseWriter, r *http.Request) {
 		a.writeAuthError(w, err)
 		return
 	}
+	if err := a.ensureLinkCapacity(r, auth.WorkspaceID); err != nil {
+		if errors.Is(err, core.ErrLimitExceeded) {
+			writeError(w, http.StatusPaymentRequired, "link limit reached; upgrade the workspace plan")
+			return
+		}
+		a.writeStoreError(w, err)
+		return
+	}
 	var req struct {
 		URL        string `json:"url"`
 		CustomSlug string `json:"customSlug"`
+		DomainID   string `json:"domainId"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -60,14 +74,34 @@ func (a *app) createLink(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "destination safety check unavailable")
 		return
 	}
-
+	domainID := strings.TrimSpace(req.DomainID)
+	domainHost := ""
+	if domainID != "" {
+		domain, err := a.domainForLink(r, auth, domainID)
+		if err != nil {
+			a.writeCommercialError(w, err)
+			return
+		}
+		domainID = domain.ID
+		domainHost = domain.Host
+	}
+	now := time.Now().UTC()
 	custom := strings.TrimSpace(req.CustomSlug)
 	if custom != "" {
 		if !slugPattern.MatchString(custom) || reserved[custom] {
 			writeError(w, http.StatusBadRequest, "custom slug must be 3-64 lowercase letters, numbers, hyphens, or underscores and cannot be reserved")
 			return
 		}
-		item := core.Link{Slug: custom, URL: target, WorkspaceID: auth.WorkspaceID, CreatedByUserID: auth.UserID, CreatedAt: time.Now().UTC()}
+		item := core.Link{
+			Slug:            custom,
+			URL:             target,
+			WorkspaceID:     auth.WorkspaceID,
+			CreatedByUserID: auth.UserID,
+			DomainID:        domainID,
+			DomainHost:      domainHost,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		}
 		if err := a.createOwnedLink(r, auth, item); err != nil {
 			a.writeStoreError(w, err)
 			return
@@ -82,7 +116,16 @@ func (a *app) createLink(w http.ResponseWriter, r *http.Request) {
 			a.internalRandomError(w, err)
 			return
 		}
-		item := core.Link{Slug: slug, URL: target, WorkspaceID: auth.WorkspaceID, CreatedByUserID: auth.UserID, CreatedAt: time.Now().UTC()}
+		item := core.Link{
+			Slug:            slug,
+			URL:             target,
+			WorkspaceID:     auth.WorkspaceID,
+			CreatedByUserID: auth.UserID,
+			DomainID:        domainID,
+			DomainHost:      domainHost,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		}
 		err = a.createOwnedLink(r, auth, item)
 		if errors.Is(err, core.ErrConflict) {
 			continue
@@ -98,7 +141,10 @@ func (a *app) createLink(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) createOwnedLink(r *http.Request, auth core.AuthContext, item core.Link) error {
-	audit := actorAudit(auth, "link.created", "link", item.Slug, item.CreatedAt, map[string]string{"destination": item.URL})
+	audit := actorAudit(auth, "link.created", "link", item.Slug, item.CreatedAt, map[string]string{
+		"destination": item.URL,
+		"domain_id":   item.DomainID,
+	})
 	return a.store.CreateOwnedLink(r.Context(), item, audit)
 }
 
@@ -132,17 +178,29 @@ func (a *app) linkStats(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) redirect(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
-	item, err := a.store.GetLink(r.Context(), slug)
+	requestHost := canonicalHost(r.Host)
+	base, _ := url.Parse(a.baseURL)
+	primaryHost := canonicalHost(base.Host)
+	var item core.Link
+	var err error
+	if requestHost == primaryHost {
+		item, err = a.store.GetLink(r.Context(), slug)
+		if err == nil && item.DomainID != "" {
+			err = core.ErrNotFound
+		}
+	} else {
+		item, err = a.store.GetCustomDomainLink(r.Context(), requestHost, slug)
+	}
 	if errors.Is(err, core.ErrNotFound) {
 		http.NotFound(w, r)
 		return
 	}
 	if err != nil {
-		a.logger.Error("redirect lookup failed", "slug", slug, "error", err)
+		a.logger.Error("redirect lookup failed", "slug", slug, "host", requestHost, "error", err)
 		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if item.SuspendedAt != nil {
+	if item.DisabledAt != nil || item.SuspendedAt != nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -162,10 +220,14 @@ func (a *app) response(item core.Link) linkResponse {
 	return linkResponse{
 		Slug:             item.Slug,
 		URL:              item.URL,
-		ShortURL:         a.baseURL + "/" + item.Slug,
+		ShortURL:         a.shortURL(item),
 		WorkspaceID:      item.WorkspaceID,
+		DomainID:         item.DomainID,
+		DomainHost:       item.DomainHost,
 		CreatedAt:        item.CreatedAt,
+		UpdatedAt:        item.UpdatedAt,
 		Visits:           item.Visits,
+		DisabledAt:       item.DisabledAt,
 		SuspendedAt:      item.SuspendedAt,
 		SuspensionReason: item.SuspensionReason,
 	}

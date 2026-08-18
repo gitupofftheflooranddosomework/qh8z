@@ -12,9 +12,27 @@ type Store interface {
 	CreateOwnedLink(context.Context, core.Link, core.AuditEntry) error
 	GetLink(context.Context, string) (core.Link, error)
 	GetWorkspaceLink(context.Context, string, string) (core.Link, error)
+	GetCustomDomainLink(context.Context, string, string) (core.Link, error)
+	ListWorkspaceLinks(context.Context, string, int, int) ([]core.Link, error)
+	UpdateWorkspaceLink(context.Context, string, string, string, string, time.Time, core.AuditEntry) (core.Link, error)
+	SetWorkspaceLinkDisabled(context.Context, string, string, bool, time.Time, core.AuditEntry) (core.Link, error)
+	DeleteWorkspaceLink(context.Context, string, string, core.AuditEntry) error
 	RecordVisit(context.Context, core.Visit) (int64, error)
 	Stats(context.Context, string, int) (core.Stats, error)
 	StatsForWorkspace(context.Context, string, string, int) (core.Stats, error)
+	WorkspaceAnalytics(context.Context, string, time.Time, time.Time, int) (core.WorkspaceAnalytics, error)
+	WorkspaceUsage(context.Context, string, time.Time) (core.WorkspaceUsage, error)
+
+	CreateCustomDomain(context.Context, core.CustomDomain, core.AuditEntry) error
+	ListCustomDomains(context.Context, string) ([]core.CustomDomain, error)
+	GetCustomDomain(context.Context, string, string) (core.CustomDomain, error)
+	SetCustomDomainVerified(context.Context, string, string, time.Time, core.AuditEntry) (core.CustomDomain, error)
+	DeleteCustomDomain(context.Context, string, string, core.AuditEntry) error
+
+	GetBillingState(context.Context, string) (core.BillingState, error)
+	UpsertBillingState(context.Context, core.BillingState, core.AuditEntry) error
+	ClaimBillingEvent(context.Context, string, time.Time) (bool, error)
+	ReleaseBillingEvent(context.Context, string) error
 
 	Register(context.Context, core.Registration) error
 	UserByEmail(context.Context, string) (core.User, error)
