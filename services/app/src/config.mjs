@@ -4,11 +4,19 @@ const bool = (value, fallback = false) => {
 };
 
 const int = (value, fallback) => {
-  const parsed = Number.parseInt(value ?? '', 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  if (value == null || String(value).trim() === '') return fallback;
+  const raw = String(value).trim();
+  if (!/^-?\d+$/.test(raw)) return Number.NaN;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
 };
 
 const trimmed = (value, fallback = '') => String(value ?? fallback).trim();
+const emailLike = value => {
+  const email = trimmed(value).toLowerCase();
+  return email.length <= 254 && /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(email);
+};
+const integerBetween = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
 
 export const config = Object.freeze({
   env: process.env.NODE_ENV || 'development',
@@ -60,34 +68,48 @@ export const plans = Object.freeze({
   pro: { name: 'Pro', links: 5000, customSlugs: true, priceLabel: '$6/mo' },
 });
 
+function requireHttpsOrigin(problems, name, value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') {
+      problems.push(`${name} must use HTTPS`);
+      return;
+    }
+    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+      problems.push(`${name} must be an HTTPS origin without a path, query, fragment, or embedded credentials`);
+    }
+  } catch {
+    problems.push(`${name} must be a valid absolute HTTPS origin`);
+  }
+}
+
 export function startupProblems() {
   const problems = [];
   const billingValues = [config.stripeSecretKey, config.stripeWebhookSecret, config.stripeProPriceId];
   if (billingValues.some(Boolean) && !billingValues.every(Boolean)) problems.push('Stripe must be configured with secret key, webhook secret, and Pro price ID together');
   if (!config.publicLaunchMode) return problems;
   if (config.env !== 'production') problems.push('PUBLIC_LAUNCH_MODE requires NODE_ENV=production');
-  try {
-    if (new URL(config.appBaseUrl).protocol !== 'https:') problems.push('APP_BASE_URL must use HTTPS');
-    if (new URL(config.publicShortBaseUrl).protocol !== 'https:') problems.push('PUBLIC_SHORT_BASE_URL must use HTTPS');
-  } catch {
-    problems.push('APP_BASE_URL and PUBLIC_SHORT_BASE_URL must be valid absolute URLs');
-  }
+  requireHttpsOrigin(problems, 'APP_BASE_URL', config.appBaseUrl);
+  requireHttpsOrigin(problems, 'PUBLIC_SHORT_BASE_URL', config.publicShortBaseUrl);
+  if (!integerBetween(config.port, 1, 65535)) problems.push('PORT must be an integer between 1 and 65535');
   if (!config.cookieSecure) problems.push('COOKIE_SECURE must be true');
   if (!config.emailVerificationRequired) problems.push('EMAIL_VERIFICATION_REQUIRED must be true');
   if (!config.webRiskRequired || !config.webRiskApiKey) problems.push('Google Web Risk must be configured and required');
   if (!config.turnstileRequired || !config.turnstileSiteKey || !config.turnstileSecretKey) problems.push('Cloudflare Turnstile must be configured and required');
   if (config.mailMode !== 'smtp' || !config.smtpHost || !config.mailFrom) problems.push('SMTP email delivery must be configured');
+  if (!integerBetween(config.smtpPort, 1, 65535)) problems.push('SMTP_PORT must be an integer between 1 and 65535');
   if (!config.shlinkApiKey || config.shlinkApiKey.length < 24) problems.push('SHLINK_API_KEY must be a strong secret');
-  if (!config.adminEmail || !config.adminEmail.includes('@') || config.adminEmail.endsWith('.example') || config.adminEmail.includes('replace-with')) problems.push('ADMIN_EMAIL must be the real administrator email');
+  if (!emailLike(config.adminEmail) || config.adminEmail.endsWith('.example') || config.adminEmail.includes('replace-with')) problems.push('ADMIN_EMAIL must be the real administrator email');
   if (!/^[0-9a-fA-F]{64}$/.test(config.mfaEncryptionKey)) problems.push('MFA_ENCRYPTION_KEY must be 32 random bytes encoded as 64 hex characters');
-  if (config.sessionTtlDays < 1 || config.sessionTtlDays > 90) problems.push('SESSION_TTL_DAYS must be between 1 and 90');
-  if (config.adminSessionHours < 1 || config.adminSessionHours > 24) problems.push('ADMIN_SESSION_HOURS must be between 1 and 24');
-  if (config.retentionDays < 30 || config.retentionDays > 3650) problems.push('DATA_RETENTION_DAYS must be between 30 and 3650');
-  if (config.reputationRecheckHours < 1 || config.reputationRecheckHours > 168) problems.push('REPUTATION_RECHECK_HOURS must be between 1 and 168 in public mode');
-  if (config.reputationRecheckBatch < 1 || config.reputationRecheckBatch > 1000) problems.push('REPUTATION_RECHECK_BATCH must be between 1 and 1000 in public mode');
-  if (config.reputationWorkerMinutes < 1 || config.reputationWorkerMinutes > 60) problems.push('REPUTATION_WORKER_MINUTES must be between 1 and 60 in public mode');
+  if (!integerBetween(config.sessionTtlDays, 1, 90)) problems.push('SESSION_TTL_DAYS must be an integer between 1 and 90');
+  if (!integerBetween(config.adminSessionHours, 1, 24)) problems.push('ADMIN_SESSION_HOURS must be an integer between 1 and 24');
+  if (!integerBetween(config.retentionDays, 30, 3650)) problems.push('DATA_RETENTION_DAYS must be an integer between 30 and 3650');
+  if (!integerBetween(config.reputationRecheckHours, 1, 168)) problems.push('REPUTATION_RECHECK_HOURS must be an integer between 1 and 168 in public mode');
+  if (!integerBetween(config.reputationRecheckBatch, 1, 1000)) problems.push('REPUTATION_RECHECK_BATCH must be an integer between 1 and 1000 in public mode');
+  if (!integerBetween(config.reputationWorkerMinutes, 1, 60)) problems.push('REPUTATION_WORKER_MINUTES must be an integer between 1 and 60 in public mode');
   if (!config.termsVersion) problems.push('TERMS_VERSION is required');
-  if (!config.supportEmail.includes('@') || !config.abuseEmail.includes('@')) problems.push('Support and abuse email addresses must be configured');
+  if (!emailLike(config.supportEmail) || !emailLike(config.abuseEmail)) problems.push('Support and abuse email addresses must be valid');
   if (!config.legalOperatorName || !config.legalJurisdiction) problems.push('LEGAL_OPERATOR_NAME and LEGAL_JURISDICTION must identify the public service operator');
+  if (/[<>]/.test(config.legalOperatorName) || /[<>]/.test(config.legalJurisdiction)) problems.push('LEGAL_OPERATOR_NAME and LEGAL_JURISDICTION must be plain text without HTML markup');
   return problems;
 }
