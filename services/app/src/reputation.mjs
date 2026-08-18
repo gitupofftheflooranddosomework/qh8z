@@ -2,6 +2,7 @@ import { config } from './config.mjs';
 import { pool, audit } from './db.mjs';
 import { deleteShortUrl } from './shlink.mjs';
 import { assertDestinationAllowed } from './destination.mjs';
+import { reconcileDueLinks } from './consistency.mjs';
 
 const THREAT_TYPES = ['MALWARE', 'SOCIAL_ENGINEERING', 'UNWANTED_SOFTWARE'];
 
@@ -87,6 +88,10 @@ async function runReputationPass() {
   reputationPassRunning = true;
   try {
     await recheckDueLinks();
+    const consistency = await reconcileDueLinks();
+    if (consistency.repaired || consistency.disabled || consistency.failed) {
+      console.log(JSON.stringify({ level: consistency.failed ? 'warn' : 'info', event: 'consistency.pass', ...consistency }));
+    }
   } finally {
     reputationPassRunning = false;
   }
