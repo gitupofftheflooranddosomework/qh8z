@@ -20,3 +20,10 @@ ON CONFLICT (event_id) DO NOTHING`, eventID, processedAt)
 	}
 	return rows == 1, nil
 }
+
+func (s *Store) ReleaseBillingEvent(ctx context.Context, eventID string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM billing_webhook_events WHERE event_id = $1`, eventID); err != nil {
+		return fmt.Errorf("release billing webhook event: %w", err)
+	}
+	return nil
+}
