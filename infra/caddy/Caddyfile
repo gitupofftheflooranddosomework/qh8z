@@ -15,6 +15,10 @@ www.{$QH8Z_DOMAIN} {
     Referrer-Policy "no-referrer"
     Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(self)"
   }
+  @shlinkApi path /rest/*
+  handle @shlinkApi {
+    respond "Not found" 404
+  }
   @product path / /app /app/* /login /signup /verify /forgot /reset /privacy /terms /security /report /healthz /readyz /favicon.svg /robots.txt /.well-known/security.txt /api/* /assets/*
   handle @product {
     reverse_proxy app:3000
