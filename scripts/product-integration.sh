@@ -117,6 +117,26 @@ curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -X POST "http://localhost:3000/api
 redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/product-advanced)
 [[ "$redirect" == "https://example.com/advanced" ]]
 
+# QH8Z owns the entire redirect contract, not only the destination. If Shlink
+# drifts on title/tags/expiry/max-visits, reconciliation restores those controls.
+curl -fsS -X PATCH http://localhost:8080/rest/v3/short-urls/product-advanced \
+  -H "X-Api-Key: ${SHLINK_API_KEY}" -H 'content-type: application/json' \
+  -d '{"title":"Tampered","tags":["tampered"],"validUntil":null,"maxVisits":null}' >/tmp/qh8z-product-tampered.json
+docker compose exec -T app node --input-type=module -e "import { reconcileDueLinks } from './src/consistency.mjs'; import { pool } from './src/db.mjs'; const r=await reconcileDueLinks({confirmAfterMs:0,batch:100}); await pool.end(); if(r.repaired<1) process.exit(1);"
+curl -fsS http://localhost:8080/rest/v3/short-urls/product-advanced -H "X-Api-Key: ${SHLINK_API_KEY}" >/tmp/qh8z-product-reconciled.json
+python3 - "$expires_at" <<'PY'
+import json, sys
+from datetime import datetime
+with open('/tmp/qh8z-product-reconciled.json') as f: link=json.load(f)
+expected=datetime.fromisoformat(sys.argv[1].replace('Z','+00:00'))
+actual=datetime.fromisoformat(link['validUntil'].replace('Z','+00:00'))
+assert link['longUrl']=='https://example.com/advanced'
+assert link['title']=='Product advanced'
+assert set(link['tags'])=={'launch','pro'}
+assert link['maxVisits']==25
+assert actual==expected
+PY
+
 # Bulk workflow supports partial results and creates multiple usable links.
 bulk=$(curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -H 'content-type: application/json' \
   -d '{"links":[{"longUrl":"https://example.com/bulk-one","customSlug":"product-bulk-one","title":"Bulk one"},{"longUrl":"https://example.com/bulk-two","customSlug":"product-bulk-two","title":"Bulk two","tags":["bulk"]}]}' \
