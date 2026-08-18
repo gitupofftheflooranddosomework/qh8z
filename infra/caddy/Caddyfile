@@ -18,7 +18,15 @@ www.{$QH8Z_DOMAIN} {
 		respond "Not found" 404
 	}
 
-	@product path / /app /app/* /login /signup /verify /forgot /reset /privacy /terms /security /report /healthz /readyz /favicon.svg /robots.txt /.well-known/security.txt /api/* /assets/*
+	# /assets is intentionally only for browser assets. HTML files in public/
+	# include route templates (including legal placeholders) and must never be
+	# reachable through the static-asset mount.
+	@rawTemplate path /assets/*.html /assets/.well-known/*
+	handle @rawTemplate {
+		respond "Not found" 404
+	}
+
+	@product path / /app /app/* /login /login/* /signup /signup/* /verify /verify/* /forgot /forgot/* /reset /reset/* /privacy /privacy/* /terms /terms/* /security /security/* /report /report/* /healthz /readyz /favicon.svg /robots.txt /.well-known/security.txt /api /api/* /assets /assets/*
 	handle @product {
 		reverse_proxy app:3000
 	}
