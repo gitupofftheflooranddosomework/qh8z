@@ -70,9 +70,13 @@ export async function requireUser(req, res, next) {
   try {
     if (!req.user) return res.status(401).json({ error: 'authentication_required' });
     const route = req.originalUrl?.split('?')[0];
-    if (req.method === 'DELETE' && route === '/api/account' && req.user.mfa_enabled_at) {
+    if (req.user.mfa_enabled_at && req.method === 'DELETE' && route === '/api/account') {
       const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id]);
       if (!rows[0] || !(await verifyMfaUser(rows[0], req.body?.mfaCode, false))) return res.status(401).json({ error: 'invalid_mfa_code', message: 'An authenticator or recovery code is required to delete this account.' });
+    }
+    if (req.user.mfa_enabled_at && req.method === 'POST' && route === '/api/account/password') {
+      const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id]);
+      if (!rows[0] || !(await verifyMfaUser(rows[0], req.body?.mfaCode, true))) return res.status(401).json({ error: 'invalid_mfa_code', message: 'An authenticator or recovery code is required to change your password.' });
     }
     next();
   } catch (error) { next(error); }
