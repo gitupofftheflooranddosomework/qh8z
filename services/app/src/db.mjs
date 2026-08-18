@@ -131,7 +131,8 @@ export async function cleanupExpiredAuthTokens() {
 }
 
 export async function cleanupRetainedOperationalData() {
-  const days = Math.max(config.retentionDays, 30);
+  const requested = Number.isInteger(config.retentionDays) ? config.retentionDays : 365;
+  const days = Math.min(Math.max(requested, 30), 3650);
   await pool.query(`DELETE FROM audit_events WHERE created_at < NOW() - ($1::text || ' days')::interval`, [days]);
   await pool.query(`DELETE FROM abuse_reports WHERE status IN ('resolved','dismissed') AND resolved_at < NOW() - ($1::text || ' days')::interval`, [days]);
   await pool.query(`DELETE FROM stripe_events WHERE processed_at < NOW() - ($1::text || ' days')::interval`, [days]);
