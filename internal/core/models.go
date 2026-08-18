@@ -91,15 +91,15 @@ type AnalyticsReferrer struct {
 }
 
 type WorkspaceAnalytics struct {
-	From        time.Time           `json:"from"`
-	To          time.Time           `json:"to"`
-	TotalLinks  int64               `json:"totalLinks"`
-	ActiveLinks int64               `json:"activeLinks"`
-	TotalVisits int64               `json:"totalVisits"`
-	PeriodVisits int64              `json:"periodVisits"`
-	Daily       []AnalyticsDay      `json:"daily"`
-	TopLinks    []AnalyticsLink     `json:"topLinks"`
-	Referrers   []AnalyticsReferrer `json:"referrers"`
+	From         time.Time           `json:"from"`
+	To           time.Time           `json:"to"`
+	TotalLinks   int64               `json:"totalLinks"`
+	ActiveLinks  int64               `json:"activeLinks"`
+	TotalVisits  int64               `json:"totalVisits"`
+	PeriodVisits int64               `json:"periodVisits"`
+	Daily        []AnalyticsDay      `json:"daily"`
+	TopLinks     []AnalyticsLink     `json:"topLinks"`
+	Referrers    []AnalyticsReferrer `json:"referrers"`
 }
 
 type CustomDomain struct {
@@ -120,13 +120,13 @@ type WorkspaceUsage struct {
 }
 
 type BillingState struct {
-	WorkspaceID           string     `json:"workspaceId"`
-	PlanCode              string     `json:"plan"`
-	Status                string     `json:"status"`
-	ProviderCustomerID    string     `json:"-"`
-	ProviderSubscriptionID string    `json:"-"`
-	CurrentPeriodEnd      *time.Time `json:"currentPeriodEnd,omitempty"`
-	UpdatedAt             time.Time  `json:"updatedAt"`
+	WorkspaceID            string     `json:"workspaceId"`
+	PlanCode               string     `json:"plan"`
+	Status                 string     `json:"status"`
+	ProviderCustomerID     string     `json:"-"`
+	ProviderSubscriptionID string     `json:"-"`
+	CurrentPeriodEnd       *time.Time `json:"currentPeriodEnd,omitempty"`
+	UpdatedAt              time.Time  `json:"updatedAt"`
 }
 
 type User struct {
