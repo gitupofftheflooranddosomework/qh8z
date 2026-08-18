@@ -28,10 +28,12 @@ export async function verifyPassword(password, hash) {
 export async function createSession(userId, res) {
   const token = crypto.randomBytes(32).toString('base64url');
   const tokenHash = hashToken(token);
-  const expires = new Date(Date.now() + config.sessionTtlDays * 86400_000);
+  const role = await pool.query('SELECT is_admin FROM users WHERE id=$1', [userId]);
+  const maxAgeSeconds = role.rows[0]?.is_admin ? Math.max(1, config.adminSessionHours) * 3600 : config.sessionTtlDays * 86400;
+  const expires = new Date(Date.now() + maxAgeSeconds * 1000);
   await pool.query('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,$3)', [tokenHash, userId, expires]);
   const secure = config.cookieSecure ? '; Secure' : '';
-  res.append('Set-Cookie', `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${config.sessionTtlDays * 86400}${secure}`);
+  res.append('Set-Cookie', `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`);
 }
 
 export async function destroySession(req, res) {
@@ -64,13 +66,23 @@ export function hasSessionCookie(req) {
   return Boolean(cookies[COOKIE]);
 }
 
+async function requireMfaForSensitiveAction(req, res) {
+  if (!req.user?.mfa_enabled_at) return true;
+  const route = req.originalUrl?.split('?')[0];
+  const sensitive = (req.method === 'DELETE' && route === '/api/account') || (req.method === 'POST' && route === '/api/account/password');
+  if (!sensitive) return true;
+  const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id]);
+  if (!rows[0] || !(await verifyMfaUser(rows[0], req.body?.mfaCode, false))) {
+    res.status(401).json({ error: 'invalid_mfa_code', message: 'An authenticator or recovery code is required for this account security change.' });
+    return false;
+  }
+  return true;
+}
+
 export async function requireUser(req, res, next) {
   try {
     if (!req.user) return res.status(401).json({ error: 'authentication_required' });
-    if (req.method === 'DELETE' && req.originalUrl?.split('?')[0] === '/api/account' && req.user.mfa_enabled_at) {
-      const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id]);
-      if (!rows[0] || !(await verifyMfaUser(rows[0], req.body?.mfaCode, false))) return res.status(401).json({ error: 'invalid_mfa_code', message: 'An authenticator or recovery code is required to delete this account.' });
-    }
+    if (!(await requireMfaForSensitiveAction(req, res))) return;
     next();
   } catch (error) { next(error); }
 }
@@ -93,5 +105,6 @@ export function requireEligibleUser(req, res, next) {
 export function requireAdmin(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'authentication_required' });
   if (!req.user.is_admin) return res.status(403).json({ error: 'admin_required' });
+  if (config.publicLaunchMode && !req.user.mfa_enabled_at) return res.status(403).json({ error: 'admin_mfa_enrollment_required', message: 'Administrator MFA must be enabled before using trust and safety controls.' });
   next();
 }
