@@ -43,7 +43,8 @@ for key in POSTGRES_PASSWORD SHLINK_API_KEY ADMIN_EMAIL MFA_ENCRYPTION_KEY SUPPO
 admin_email=$(value ADMIN_EMAIL)
 if [[ "$admin_email" != *@* || "$admin_email" == *.example || "$admin_email" == *replace-with* ]]; then echo "FAIL: ADMIN_EMAIL must be a real administrator address" >&2; fail=1; fi
 [[ "$(value MFA_ENCRYPTION_KEY)" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "FAIL: MFA_ENCRYPTION_KEY must be exactly 64 hex characters" >&2; fail=1; }
-for key in POSTGRES_PASSWORD SHLINK_API_KEY; do v=$(value "$key"); [[ ${#v} -ge 24 ]] || { echo "FAIL: $key must be at least 24 characters" >&2; fail=1; }; done
+[[ "$(value POSTGRES_PASSWORD)" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "FAIL: POSTGRES_PASSWORD must be 32 random bytes encoded as 64 hex characters" >&2; fail=1; }
+[[ "$(value SHLINK_API_KEY)" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "FAIL: SHLINK_API_KEY must be 32 random bytes encoded as 64 hex characters" >&2; fail=1; }
 bootstrap=$(value ADMIN_BOOTSTRAP_SECRET)
 if [[ -n "$bootstrap" && ( "$bootstrap" == *replace-with* || "$bootstrap" == *change-me* || ${#bootstrap} -lt 24 ) ]]; then
   echo "FAIL: ADMIN_BOOTSTRAP_SECRET must be blank after bootstrap or a strong one-time secret" >&2
