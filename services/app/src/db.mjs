@@ -2,7 +2,15 @@ import pg from 'pg';
 import { config } from './config.mjs';
 
 const { Pool } = pg;
-export const pool = new Pool({ connectionString: config.databaseUrl, max: 12 });
+export const pool = new Pool({
+  connectionString: config.databaseUrl,
+  max: 12,
+  connectionTimeoutMillis: 5_000,
+  idleTimeoutMillis: 30_000,
+  statement_timeout: 10_000,
+  query_timeout: 12_000,
+  application_name: 'qh8z-app',
+});
 
 export async function migrate() {
   await pool.query(`
