@@ -3,22 +3,23 @@ import { config } from './config.mjs';
 
 function blockedIpv4(ip) {
   const parts = ip.split('.').map(Number);
-  const [a,b] = parts;
+  const [a,b,c] = parts;
   return a === 0 || a === 10 || a === 127 || a >= 224 ||
     (a === 100 && b >= 64 && b <= 127) ||
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
-    (a === 198 && (b === 18 || b === 19));
+    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+    (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
+    (a === 203 && b === 0 && c === 113);
 }
 
 function blockedIpv6(ip) {
   const lower = ip.toLowerCase();
   if (lower === '::' || lower === '::1' || lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb') || lower.startsWith('ff')) return true;
-  if (lower.startsWith('::ffff:')) {
-    const mapped = lower.slice(7);
-    return net.isIP(mapped) === 4 && blockedIpv4(mapped);
-  }
+  // Reject IPv4-mapped IPv6 literals entirely. WHATWG URL canonicalization can
+  // turn 127.0.0.1 into ::ffff:7f00:1, which is easy to mis-parse as public.
+  if (lower.startsWith('::ffff:')) return true;
   return false;
 }
 
