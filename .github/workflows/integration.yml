@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 
-x-qh8z-env: &qh8z-env
+env:
   NODE_ENV: development
   POSTGRES_PASSWORD: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   QH8Z_DB_PASSWORD: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -40,7 +40,6 @@ jobs:
   docker-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env: *qh8z-env
     steps:
       - uses: actions/checkout@v7
       - name: Boot and exercise the public stack
@@ -55,7 +54,6 @@ jobs:
   product-v1:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env: *qh8z-env
     steps:
       - uses: actions/checkout@v7
       - name: Exercise launch-v1 product workflows
@@ -70,7 +68,6 @@ jobs:
   backup-restore:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env: *qh8z-env
     steps:
       - uses: actions/checkout@v7
       - name: Back up, destroy, restore, and verify both databases
