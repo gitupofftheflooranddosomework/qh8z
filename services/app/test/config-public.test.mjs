@@ -43,6 +43,7 @@ function problems(overrides = {}) {
 
 test('complete public configuration passes static launch checks', () => assert.deepEqual(problems(), []));
 test('post-bootstrap configuration may remove the one-time bootstrap secret', () => assert.deepEqual(problems({ ADMIN_BOOTSTRAP_SECRET: '' }), []));
+test('public security mode stays valid while new signup is temporarily closed', () => assert.deepEqual(problems({ ALLOW_SIGNUP: 'false' }), []));
 test('public launch refuses missing Turnstile', () => assert.ok(problems({ TURNSTILE_SECRET_KEY: '' }).some(x => x.includes('Turnstile'))));
 test('public launch refuses placeholder admin identity', () => assert.ok(problems({ ADMIN_EMAIL: 'admin@example.example' }).some(x => x.includes('ADMIN_EMAIL'))));
 test('public launch refuses insecure cookie mode', () => assert.ok(problems({ COOKIE_SECURE: 'false' }).some(x => x.includes('COOKIE_SECURE'))));
