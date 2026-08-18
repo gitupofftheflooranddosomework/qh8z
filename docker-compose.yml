@@ -36,8 +36,15 @@ services:
       LOGS_FORMAT: console
       GEOLITE_LICENSE_KEY: ${GEOLITE_LICENSE_KEY:-}
       SKIP_INITIAL_GEOLITE_DOWNLOAD: ${SKIP_INITIAL_GEOLITE_DOWNLOAD:-true}
+      OBFUSCATE_REMOTE_ADDR: 'true'
     ports:
       - "127.0.0.1:${SHLINK_DEV_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/rest/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
   app:
     build:
@@ -47,7 +54,7 @@ services:
       db:
         condition: service_healthy
       shlink:
-        condition: service_started
+        condition: service_healthy
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
@@ -59,24 +66,55 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
       ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      PUBLIC_LAUNCH_MODE: ${PUBLIC_LAUNCH_MODE:-false}
+      EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-false}
+      TERMS_VERSION: ${TERMS_VERSION:-2026-08-17}
+      DEV_EXPOSE_AUTH_TOKENS: ${DEV_EXPOSE_AUTH_TOKENS:-false}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_BOOTSTRAP_SECRET: ${ADMIN_BOOTSTRAP_SECRET:-}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-}
       SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@qh8z.com}
+      ABUSE_EMAIL: ${ABUSE_EMAIL:-abuse@qh8z.com}
+      LEGAL_OPERATOR_NAME: ${LEGAL_OPERATOR_NAME:-}
+      LEGAL_JURISDICTION: ${LEGAL_JURISDICTION:-}
       WEB_RISK_API_KEY: ${WEB_RISK_API_KEY:-}
-      WEB_RISK_REQUIRED: ${WEB_RISK_REQUIRED:-true}
+      WEB_RISK_REQUIRED: ${WEB_RISK_REQUIRED:-false}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      TURNSTILE_REQUIRED: ${TURNSTILE_REQUIRED:-false}
+      MAIL_MODE: ${MAIL_MODE:-log}
+      MAIL_FROM: ${MAIL_FROM:-QH8Z <support@qh8z.com>}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      DATA_RETENTION_DAYS: ${DATA_RETENTION_DAYS:-365}
+      REPUTATION_RECHECK_HOURS: ${REPUTATION_RECHECK_HOURS:-24}
+      REPUTATION_RECHECK_BATCH: ${REPUTATION_RECHECK_BATCH:-25}
+      REPUTATION_WORKER_MINUTES: ${REPUTATION_WORKER_MINUTES:-15}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_PRO_PRICE_ID: ${STRIPE_PRO_PRICE_ID:-}
     ports:
       - "127.0.0.1:${APP_DEV_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/healthz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     profiles: ["production"]
     depends_on:
-      - app
-      - shlink
+      app:
+        condition: service_healthy
+      shlink:
+        condition: service_healthy
     environment:
       QH8Z_DOMAIN: ${QH8Z_DOMAIN:-qh8z.com}
     ports:
