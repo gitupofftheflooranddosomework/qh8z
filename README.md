@@ -6,27 +6,57 @@ QH8Z is a commercial link-management product for `qh8z.com`. It combines the str
 
 - **Shlink v5.1.5** is the isolated, replaceable redirect and visit-tracking engine.
 - **Kutt v3.2.6** is an MIT-licensed product/UX donor and reference.
-- **QH8Z-owned code** provides identity, email verification/recovery, plans, billing, link ownership, QR delivery, destination policy, abuse controls, moderation, and the complete customer-facing brand.
+- **QH8Z-owned code** provides the customer product, identity, billing, link ownership, developer API, safety policy, moderation, recovery tooling, and brand.
 
-## Public-launch feature set
+## Launch-v1 product
 
-- QH8Z marketing site and responsive dashboard
-- account registration/login/logout, verified email, password recovery/change, data export and deletion
-- one-time hashed verification/reset tokens; recovery tokens stay in URL fragments
-- TOTP two-factor authentication with encrypted secrets and hashed one-time recovery codes; required for public administrators
-- Secure HttpOnly production sessions and cookie-authenticated same-origin protection
+### Link workspace
+
+- authenticated short-link creation with generated or custom aliases
+- searchable, paginated link library with status and tag filtering
+- titles, tags, and private notes
+- editable destinations while keeping the same short URL
+- archive/unarchive without breaking the redirect
+- disable and restore to the same owned short code
+- per-link QR codes
+- CSV inventory export and full account JSON export
+- visit totals, human/bot summaries, recent visit history, and dashboard analytics
+
+### Pro controls
+
+- 5,000 active links instead of 25
+- scheduled link expiration
+- maximum-visit limits
+- bulk creation with per-row results
+- scoped, revocable developer API tokens
+- versioned bearer-token API under `/api/v1`
+- optional Stripe Checkout and self-service billing portal
+
+See [`docs/API.md`](docs/API.md) for the developer surface.
+
+### Accounts and safety
+
+- registration/login/logout, verified email, password recovery/change, account export and deletion
+- one-time hashed verification/reset tokens; recovery credentials remain out of ordinary server URLs
+- TOTP two-factor authentication with encrypted secrets and hashed single-use recovery codes
+- administrator MFA required in public-launch mode
+- Secure HttpOnly sessions and cookie-authenticated same-origin protection
 - Cloudflare Turnstile on public auth/recovery/abuse forms
-- authenticated short-link creation and custom aliases
-- reserved-route and local/private-network destination protection
-- Google Web Risk checks on creation and edits, plus recurring active-link rechecks with fail-closed public mode
-- editable destinations, redirect disabling and account suspension
-- visit analytics with anonymized stored visitor addresses and per-link QR codes
-- Free/Pro plan limits and optional Stripe subscriptions
-- abuse reporting, moderation queue, admin user controls and audit events
-- PostgreSQL with isolated QH8Z/Shlink databases
-- Caddy automatic HTTPS and security headers, with request access logging disabled in the shipped edge config to minimize raw visitor-IP retention
-- readiness/liveness endpoints, verifiable two-database backup/restore tooling, and production pre/post-deploy checks
-- deterministic npm lockfile, dependency audit, Dependabot, HTTPS Docker end-to-end tests, and destructive recovery drills
+- Google Web Risk checks on creation/edits plus recurring active-link rechecks
+- literal and DNS-resolved local/private/reserved destination protection
+- durable QH8Z↔Shlink ownership/reconciliation and orphan-redirect cleanup
+- abuse reporting, moderation queue, link disable, user suspension, and audit events
+
+### Operations
+
+- PostgreSQL with isolated least-privilege QH8Z/Shlink roles and databases
+- Caddy automatic HTTPS/security headers and blocked public Shlink management namespace
+- Shlink visit-IP anonymization and no per-request edge access log in the shipped Caddy config
+- readiness/liveness probes and bounded dependency timeouts
+- graceful HTTP/background-worker shutdown
+- deterministic npm lockfile and dependency audit
+- two-database backup/restore with checksum validation and destructive restore CI drill
+- guarded deploy/rollback scripts and protected manual production workflow
 - MIT notices/provenance for upstream code
 
 ## Architecture
@@ -47,7 +77,7 @@ QH8Z is a commercial link-management product for `qh8z.com`. It combines the str
                     qh8z DB + shlink DB
 ```
 
-Redirects bypass the Node product layer: visitors go Caddy -> Shlink -> destination. Customer/business operations go through QH8Z, which talks to Shlink only over its documented REST API. Shlink's `/rest` management namespace is blocked at the public edge.
+Redirects bypass the Node product layer: visitors go Caddy → Shlink → destination. Customer/business operations go through QH8Z, which talks to Shlink over its REST API. Shlink's `/rest` management namespace is blocked at the public edge.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -60,6 +90,16 @@ docker compose up --build
 ```
 
 Open the product at `http://localhost:3000` and local redirects at `http://localhost:8080`.
+
+## Automated acceptance gates
+
+QH8Z has three separate launch gates:
+
+1. **CI** — deterministic install, syntax, unit/security/product-rule tests, npm audit, and operator-script syntax.
+2. **Integration** — full PostgreSQL + Shlink + QH8Z + Caddy HTTPS behavior, authentication/MFA/recovery/moderation, namespace isolation, database-role isolation, and destructive backup/restore.
+3. **Product acceptance** — real Free→Pro customer flow including advanced link controls, search/filtering, archive/restore, bulk creation, CSV export, bearer API usage, and API-token revocation.
+
+A PR head is not considered launch-ready until all three pass on that exact head.
 
 ## Public deployment
 
@@ -77,14 +117,14 @@ bash scripts/postdeploy.sh https://qh8z.com
 
 Read [`docs/LAUNCH.md`](docs/LAUNCH.md) before opening signup publicly.
 
-## Monetization
+## Pricing
 
 Stripe is optional until paid plans are enabled. Stripe configuration is intentionally all-or-none.
 
-| Plan | Active links | Listed price |
-|---|---:|---:|
-| Free | 25 | $0 |
-| Pro | 5,000 | $6/month |
+| Plan | Active links | Included | Listed price |
+|---|---:|---|---:|
+| Free | 25 | aliases, tags/notes, QR, analytics, search, archive/restore, CSV export | $0 |
+| Pro | 5,000 | everything in Free + expiration, visit limits, bulk creation, developer API | $6/month |
 
 ## Security and abuse
 
