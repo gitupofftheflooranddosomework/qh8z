@@ -239,6 +239,7 @@ export async function cancelSubscriptionsForCustomer(stripeClient, customerId) {
 }
 
 export async function cancelBillingForUser(user) {
-  if (!stripe || !user?.stripe_customer_id) return 0;
+  if (!user?.stripe_customer_id) return 0;
+  if (!stripe) throw billingError('Billing teardown is temporarily unavailable. The account was not deleted.', 503, 'billing_unavailable');
   return cancelSubscriptionsForCustomer(stripe, user.stripe_customer_id);
 }
