@@ -76,6 +76,8 @@ async function recheckDueLinks() {
 
 let reputationWorkerStarted = false;
 let reputationPassRunning = false;
+let startupTimer = null;
+let intervalTimer = null;
 
 async function runReputationPass() {
   if (reputationPassRunning) {
@@ -94,8 +96,22 @@ export function startReputationWorker() {
   if (reputationWorkerStarted || config.reputationWorkerMinutes <= 0) return;
   reputationWorkerStarted = true;
   const run = () => runReputationPass().catch(error => console.error(JSON.stringify({ level: 'error', event: 'reputation.worker_failed', message: error.message })));
-  setTimeout(run, 30_000).unref();
-  setInterval(run, config.reputationWorkerMinutes * 60_000).unref();
+  startupTimer = setTimeout(run, 30_000);
+  startupTimer.unref();
+  intervalTimer = setInterval(run, config.reputationWorkerMinutes * 60_000);
+  intervalTimer.unref();
 }
 
-startReputationWorker();
+export async function stopReputationWorker(waitMs = 8000) {
+  if (startupTimer) clearTimeout(startupTimer);
+  if (intervalTimer) clearInterval(intervalTimer);
+  startupTimer = null;
+  intervalTimer = null;
+  reputationWorkerStarted = false;
+
+  const deadline = Date.now() + Math.max(0, waitMs);
+  while (reputationPassRunning && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  return !reputationPassRunning;
+}
