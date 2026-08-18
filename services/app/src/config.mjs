@@ -80,7 +80,12 @@ export function startupProblems() {
   if (!config.shlinkApiKey || config.shlinkApiKey.length < 24) problems.push('SHLINK_API_KEY must be a strong secret');
   if (!config.adminEmail || !config.adminEmail.includes('@') || config.adminEmail.endsWith('.example') || config.adminEmail.includes('replace-with')) problems.push('ADMIN_EMAIL must be the real administrator email');
   if (!/^[0-9a-fA-F]{64}$/.test(config.mfaEncryptionKey)) problems.push('MFA_ENCRYPTION_KEY must be 32 random bytes encoded as 64 hex characters');
+  if (config.sessionTtlDays < 1 || config.sessionTtlDays > 90) problems.push('SESSION_TTL_DAYS must be between 1 and 90');
   if (config.adminSessionHours < 1 || config.adminSessionHours > 24) problems.push('ADMIN_SESSION_HOURS must be between 1 and 24');
+  if (config.retentionDays < 30 || config.retentionDays > 3650) problems.push('DATA_RETENTION_DAYS must be between 30 and 3650');
+  if (config.reputationRecheckHours < 1 || config.reputationRecheckHours > 168) problems.push('REPUTATION_RECHECK_HOURS must be between 1 and 168 in public mode');
+  if (config.reputationRecheckBatch < 1 || config.reputationRecheckBatch > 1000) problems.push('REPUTATION_RECHECK_BATCH must be between 1 and 1000 in public mode');
+  if (config.reputationWorkerMinutes < 1 || config.reputationWorkerMinutes > 60) problems.push('REPUTATION_WORKER_MINUTES must be between 1 and 60 in public mode');
   if (!config.termsVersion) problems.push('TERMS_VERSION is required');
   if (!config.supportEmail.includes('@') || !config.abuseEmail.includes('@')) problems.push('Support and abuse email addresses must be configured');
   if (!config.legalOperatorName || !config.legalJurisdiction) problems.push('LEGAL_OPERATOR_NAME and LEGAL_JURISDICTION must identify the public service operator');
