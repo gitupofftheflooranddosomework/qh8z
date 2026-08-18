@@ -23,11 +23,8 @@ export function translateDbError(error) {
 
 const rawPoolQuery = pool.query.bind(pool);
 pool.query = async (...args) => {
-  try {
-    return await rawPoolQuery(...args);
-  } catch (error) {
-    throw translateDbError(error);
-  }
+  try { return await rawPoolQuery(...args); }
+  catch (error) { throw translateDbError(error); }
 };
 
 export async function migrate() {
@@ -128,7 +125,6 @@ export async function migrate() {
       IF NEW.disabled_at IS NOT NULL OR (NEW.expires_at IS NOT NULL AND NEW.expires_at <= NOW()) THEN
         RETURN NEW;
       END IF;
-
       PERFORM pg_advisory_xact_lock(hashtext(NEW.user_id), hashtext('qh8z-link-plan-limit'));
       SELECT plan INTO account_plan FROM users WHERE id=NEW.user_id;
       account_limit := CASE account_plan WHEN 'pro' THEN 5000 ELSE 25 END;
@@ -138,7 +134,6 @@ export async function migrate() {
           AND disabled_at IS NULL
           AND (expires_at IS NULL OR expires_at > NOW())
           AND id IS DISTINCT FROM NEW.id;
-
       IF active_count >= account_limit THEN
         RAISE EXCEPTION 'link plan limit reached'
           USING ERRCODE='P0001', CONSTRAINT='qh8z_link_plan_limit';
@@ -158,22 +153,20 @@ export async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS shlink_create_intents_created_idx ON shlink_create_intents(created_at);
 
-    -- Once QH8Z ownership is committed, the pre-Shlink create journal has done
-    -- its job and must disappear in the same database transaction. Keeping an
-    -- owned intent around until a later janitor pass makes immediate
-    -- disable/restore look like a concurrent create and incorrectly return 409.
     DELETE FROM shlink_create_intents intent
       USING links link
       WHERE intent.short_code=link.short_code;
     CREATE OR REPLACE FUNCTION qh8z_finalize_shlink_create_intent() RETURNS TRIGGER AS $$
     BEGIN
-      DELETE FROM shlink_create_intents WHERE short_code=NEW.short_code;
+      IF NEW.disabled_at IS NULL THEN
+        DELETE FROM shlink_create_intents WHERE short_code=NEW.short_code;
+      END IF;
       RETURN NEW;
     END;
     $$ LANGUAGE plpgsql;
     DROP TRIGGER IF EXISTS qh8z_finalize_shlink_create_intent_trigger ON links;
     CREATE TRIGGER qh8z_finalize_shlink_create_intent_trigger
-      AFTER INSERT ON links
+      AFTER INSERT OR UPDATE OF disabled_at ON links
       FOR EACH ROW EXECUTE FUNCTION qh8z_finalize_shlink_create_intent();
 
     CREATE TABLE IF NOT EXISTS api_tokens (
@@ -224,10 +217,7 @@ export async function migrate() {
 
 export async function audit(actorUserId, eventType, targetId = null, metadata = {}) {
   try {
-    await pool.query(
-      'INSERT INTO audit_events(actor_user_id,event_type,target_id,metadata) VALUES($1,$2,$3,$4)',
-      [actorUserId, eventType, targetId, JSON.stringify(metadata)]
-    );
+    await pool.query('INSERT INTO audit_events(actor_user_id,event_type,target_id,metadata) VALUES($1,$2,$3,$4)', [actorUserId, eventType, targetId, JSON.stringify(metadata)]);
     return true;
   } catch (error) {
     console.error(JSON.stringify({ level: 'error', event: 'audit.write_failed', auditEventType: eventType, targetId, message: error.message }));
