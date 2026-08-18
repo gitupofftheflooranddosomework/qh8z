@@ -18,3 +18,8 @@ func (m *Memory) ClaimBillingEvent(_ context.Context, eventID string, _ time.Tim
 	_, loaded := memoryBillingEventClaims.LoadOrStore(key, struct{}{})
 	return !loaded, nil
 }
+
+func (m *Memory) ReleaseBillingEvent(_ context.Context, eventID string) error {
+	memoryBillingEventClaims.Delete(memoryBillingEventKey{store: m, eventID: eventID})
+	return nil
+}
