@@ -1,1 +1,175 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QH8Z Dashboard</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/assets/styles.css"><script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script></head><body class="app-bg"><div id="authView" class="auth-wrap"><div class="auth-card"><a class="brand" href="/"><span class="brand-mark">Q8</span>QH8Z</a><h1 id="authTitle">Welcome back.</h1><p id="authCopy">Sign in to manage your short links.</p><div id="authNotice" class="notice error hidden"></div><form id="loginForm" class="form-stack"><label>Email<input class="input" type="email" name="email" autocomplete="email" required></label><label>Password<input class="input" type="password" name="password" autocomplete="current-password" required></label><div id="loginTurnstile"></div><button class="btn btn-primary" type="submit">Sign in</button><a class="small link-accent" href="/forgot">Forgot your password?</a></form><form id="mfaLoginForm" class="form-stack hidden"><input type="hidden" name="challengeToken"><label>Authenticator or recovery code<input class="input mono" name="code" autocomplete="one-time-code" placeholder="123456" required></label><button class="btn btn-primary" type="submit">Complete sign in</button><button class="text-button" id="mfaBackBtn" type="button">Back to password sign in</button></form><form id="signupForm" class="form-stack hidden"><label>Name<input class="input" name="name" autocomplete="name" maxlength="80" required></label><label>Email<input class="input" type="email" name="email" autocomplete="email" required></label><label>Password<input class="input" type="password" name="password" minlength="10" autocomplete="new-password" required></label><label class="check-row"><input type="checkbox" name="acceptTerms" value="true" required><span>I am at least 13 and agree to the <a class="link-accent" href="/terms" target="_blank">Terms</a> and <a class="link-accent" href="/privacy" target="_blank">Privacy Policy</a>.</span></label><div id="signupTurnstile"></div><button class="btn btn-primary" type="submit">Create account</button></form><div class="auth-switch"><span id="switchCopy">New to QH8Z?</span> <button id="authSwitch" type="button">Create an account</button></div></div></div><div id="dashboard" class="app-shell hidden"><aside class="sidebar"><a class="brand" href="/"><span class="brand-mark">Q8</span>QH8Z</a><nav class="sidebar-nav"><button class="side-link active">Links</button><button id="billingNav" class="side-link">Plan & billing</button><button id="accountNav" class="side-link">Account</button><button id="adminNav" class="side-link hidden">Trust & safety</button></nav><div class="sidebar-bottom"><div id="userName" style="font-weight:850"></div><div id="userEmail" class="muted small"></div><button id="logoutBtn" class="btn btn-sm btn-ghost" style="margin-top:10px">Sign out</button></div></aside><main class="main"><div class="topline"><div><h1>Your links</h1><div class="muted">Make it short. Keep control.</div></div><span id="planBadge" class="pill">FREE</span></div><div id="flash" class="notice hidden"></div><div id="suspendedBanner" class="notice error hidden"><strong>Account suspended.</strong> Link changes are disabled. Contact support if you believe this is a mistake.</div><div id="verificationBanner" class="notice hidden"><strong>Verify your email.</strong> You can browse the dashboard, but link creation stays locked until your address is verified. <button id="resendVerificationBtn" class="btn btn-sm" type="button">Resend verification</button></div><div id="termsBanner" class="notice hidden"><strong>Terms updated.</strong> Review the current <a class="link-accent" href="/terms" target="_blank">Terms</a> and accept them to continue managing links. <button id="acceptTermsBtn" class="btn btn-sm" type="button">Accept current Terms</button></div><div class="stats-grid"><div class="stat"><div class="stat-label">Active links</div><div id="activeCount" class="stat-value">0</div></div><div class="stat"><div class="stat-label">Total visits</div><div id="visitCount" class="stat-value">—</div></div><div class="stat"><div class="stat-label">Plan limit</div><div id="planLimit" class="stat-value">25</div></div></div><section class="panel"><div class="panel-head"><h2>Shorten something</h2><span class="muted small">Custom aliases are optional</span></div><form id="createLinkForm" class="form-grid"><input class="input" type="url" name="longUrl" placeholder="https://your-long-url.com/..." required><input class="input" name="customSlug" placeholder="custom-alias" maxlength="64"><button id="createLinkBtn" class="btn btn-primary" type="submit">Shorten</button></form><div id="createLocked" class="small muted hidden" style="margin-top:10px">Verify your email and accept the current Terms before creating links.</div></section><section class="panel"><div class="panel-head"><h2>Recent links</h2><button id="refreshBtn" class="btn btn-sm btn-ghost">Refresh</button></div><div id="linkList" class="link-list"><div class="empty">Loading your links…</div></div></section><section id="billingPanel" class="panel"><div class="panel-head"><h2>Plan & billing</h2></div><p class="muted">Free accounts include 25 active links. Pro raises that to 5,000.</p><div style="display:flex;gap:10px;flex-wrap:wrap"><button id="upgradeBtn" class="btn btn-primary">Upgrade to Pro</button><button id="portalBtn" class="btn">Manage billing</button></div></section><section id="accountPanel" class="panel"><div class="panel-head"><h2>Account</h2></div><form id="passwordForm" class="form-grid" style="grid-template-columns:1fr 1fr auto"><input class="input" type="password" name="currentPassword" placeholder="Current password" required><input class="input" type="password" name="newPassword" minlength="10" placeholder="New password (10+ chars)" required><button class="btn" type="submit">Change password</button></form><div class="subpanel"><div><strong>Two-factor authentication</strong><div id="mfaStatus" class="small muted">Checking…</div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button id="mfaSetupBtn" class="btn btn-sm" type="button">Set up MFA</button><button id="mfaDisableBtn" class="btn btn-sm btn-danger hidden" type="button">Disable MFA</button></div></div><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><a class="btn" href="/api/account/export">Export my data</a><button id="deleteAccountBtn" class="btn btn-danger" type="button">Delete account</button></div></section><section id="adminPanel" class="panel hidden"><div class="panel-head"><h2>Trust & safety</h2><button id="adminRefreshBtn" class="btn btn-sm">Refresh</button></div><h3 class="subhead">Abuse queue</h3><div id="reportList" class="muted">No reports loaded.</div><h3 class="subhead">Users</h3><form id="adminUserSearch" class="search-row"><input class="input" name="q" placeholder="Search email or name"><button class="btn btn-sm" type="submit">Search</button></form><div id="userList" class="muted">No users loaded.</div></section></main></div><dialog id="editDialog"><div class="dialog-body"><div class="dialog-head"><h3>Edit link</h3><button class="btn btn-sm" data-close-dialog="editDialog">Close</button></div><form id="editForm" class="form-stack"><input type="hidden" name="id"><label>Destination<input class="input" type="url" name="longUrl" required></label><label>Title<input class="input" name="title" maxlength="160"></label><button class="btn btn-primary" type="submit">Save changes</button></form></div></dialog><dialog id="mfaSetupDialog"><div class="dialog-body"><div class="dialog-head"><h3>Protect your QH8Z account</h3><button class="btn btn-sm" data-close-dialog="mfaSetupDialog">Close</button></div><form id="mfaStartForm" class="form-stack"><p class="muted">Use an authenticator app that supports TOTP. Your password is required before QH8Z reveals the setup secret.</p><label>Current password<input class="input" type="password" name="password" autocomplete="current-password" required></label><button class="btn btn-primary" type="submit">Generate authenticator setup</button></form><div id="mfaConfirmView" class="hidden"><div class="qr-box" style="margin-bottom:12px"><img id="mfaQr" alt="Authenticator QR code" style="width:100%;height:auto"></div><p class="small muted">Manual secret: <code id="mfaSecret" class="mono"></code></p><form id="mfaConfirmForm" class="form-stack"><label>6-digit authenticator code<input class="input mono" name="code" inputmode="numeric" autocomplete="one-time-code" required></label><button class="btn btn-primary" type="submit">Enable MFA</button></form></div><div id="mfaRecoveryView" class="hidden"><div class="notice"><strong>Save these recovery codes now.</strong> Each works once. They will not be shown again.</div><pre id="mfaRecoveryCodes" class="recovery-codes"></pre><button class="btn btn-primary" data-close-dialog="mfaSetupDialog" type="button">I saved them</button></div></div></dialog><dialog id="qrDialog"><div class="dialog-body"><div class="dialog-head"><h3>QR code</h3><button class="btn btn-sm" data-close-dialog="qrDialog">Close</button></div><div id="qrBox" class="qr-box"></div><p id="qrUrl" class="mono small" style="text-align:center;word-break:break-all"></p></div></dialog><script src="/assets/app.js" type="module"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b0d10">
+  <title>QH8Z — Dashboard</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/product.css">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+</head>
+<body class="app-bg">
+  <div id="authView" class="auth-wrap">
+    <div class="auth-card qh-auth-card">
+      <a class="brand" href="/"><span class="brand-mark">Q8</span>QH8Z</a>
+      <div class="auth-kicker">LINK CONTROL CENTER</div>
+      <h1 id="authTitle">Welcome back.</h1>
+      <p id="authCopy">Sign in to manage every QH8Z link from one place.</p>
+      <div id="authNotice" class="notice error hidden"></div>
+      <form id="loginForm" class="form-stack">
+        <label>Email<input class="input" type="email" name="email" autocomplete="email" required></label>
+        <label>Password<input class="input" type="password" name="password" autocomplete="current-password" required></label>
+        <div id="loginTurnstile"></div>
+        <button class="btn btn-primary" type="submit">Sign in</button>
+        <a class="small link-accent" href="/forgot">Forgot your password?</a>
+      </form>
+      <form id="mfaLoginForm" class="form-stack hidden">
+        <input type="hidden" name="challengeToken">
+        <label>Authenticator or recovery code<input class="input mono" name="code" autocomplete="one-time-code" placeholder="123456" required></label>
+        <button class="btn btn-primary" type="submit">Complete sign in</button>
+        <button class="text-button" id="mfaBackBtn" type="button">Back to password sign in</button>
+      </form>
+      <form id="signupForm" class="form-stack hidden">
+        <label>Name<input class="input" name="name" autocomplete="name" maxlength="80" required></label>
+        <label>Email<input class="input" type="email" name="email" autocomplete="email" required></label>
+        <label>Password<input class="input" type="password" name="password" minlength="10" autocomplete="new-password" required></label>
+        <label class="check-row"><input type="checkbox" name="acceptTerms" value="true" required><span>I am at least 13 and agree to the <a class="link-accent" href="/terms" target="_blank" rel="noreferrer">Terms</a> and <a class="link-accent" href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.</span></label>
+        <div id="signupTurnstile"></div>
+        <button class="btn btn-primary" type="submit">Create account</button>
+      </form>
+      <div class="auth-switch"><span id="switchCopy">New to QH8Z?</span> <button id="authSwitch" type="button">Create an account</button></div>
+    </div>
+  </div>
+
+  <div id="dashboard" class="app-shell hidden">
+    <aside class="sidebar qh-sidebar">
+      <div>
+        <a class="brand" href="/"><span class="brand-mark">Q8</span>QH8Z</a>
+        <div class="sidebar-caption">CONTROL CENTER</div>
+      </div>
+      <nav class="sidebar-nav" aria-label="Dashboard sections">
+        <button class="side-link active" data-section="linksSection"><span>↗</span> Links</button>
+        <button class="side-link" data-section="billingPanel" id="billingNav"><span>◇</span> Plan & billing</button>
+        <button class="side-link" data-section="developerPanel" id="developerNav"><span>⌘</span> Developer</button>
+        <button class="side-link" data-section="accountPanel" id="accountNav"><span>◎</span> Account</button>
+        <button class="side-link hidden" data-section="adminPanel" id="adminNav"><span>◉</span> Trust & safety</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="identity-row"><span class="identity-dot"></span><div><div id="userName" class="identity-name"></div><div id="userEmail" class="muted small"></div></div></div>
+        <button id="logoutBtn" class="btn btn-sm btn-ghost sidebar-signout">Sign out</button>
+      </div>
+    </aside>
+
+    <main class="main qh-main">
+      <div class="topline qh-topline">
+        <div><div class="section-kicker">QH8Z WORKSPACE</div><h1 id="pageTitle">Your links</h1><div id="pageSubtitle" class="muted">Create, measure, edit, and control every redirect.</div></div>
+        <div class="top-actions"><span id="planBadge" class="pill">FREE</span><button id="globalCreateBtn" class="btn btn-primary" type="button">+ New link</button></div>
+      </div>
+
+      <div id="flash" class="notice hidden"></div>
+      <div id="suspendedBanner" class="notice error hidden"><strong>Account suspended.</strong> Link changes are disabled. Contact support if you believe this is a mistake.</div>
+      <div id="verificationBanner" class="notice hidden"><strong>Verify your email.</strong> Link creation stays locked until your address is verified. <button id="resendVerificationBtn" class="btn btn-sm" type="button">Resend verification</button></div>
+      <div id="termsBanner" class="notice hidden"><strong>Terms updated.</strong> Review the current <a class="link-accent" href="/terms" target="_blank" rel="noreferrer">Terms</a> and accept them to continue. <button id="acceptTermsBtn" class="btn btn-sm" type="button">Accept current Terms</button></div>
+
+      <section id="linksSection" class="dashboard-section">
+        <div class="stats-grid qh-stats-grid">
+          <div class="stat qh-stat"><div class="stat-label">Active links</div><div id="activeCount" class="stat-value">0</div><div class="stat-foot">currently redirecting</div></div>
+          <div class="stat qh-stat"><div class="stat-label">Visible results</div><div id="resultCount" class="stat-value">0</div><div class="stat-foot">matching this view</div></div>
+          <div class="stat qh-stat"><div class="stat-label">Loaded visits</div><div id="visitCount" class="stat-value">—</div><div class="stat-foot">from visible links</div></div>
+          <div class="stat qh-stat"><div class="stat-label">Plan capacity</div><div id="planLimit" class="stat-value">25</div><div class="stat-foot">active-link limit</div></div>
+        </div>
+
+        <section class="panel create-panel" id="createPanel">
+          <div class="panel-head"><div><h2>Create a QH8Z link</h2><span class="muted small">Fast by default. Powerful when you need it.</span></div><span class="pro-chip">PRO CONTROLS AVAILABLE</span></div>
+          <form id="createLinkForm" class="form-stack">
+            <div class="create-primary-row">
+              <label class="grow">Destination<input class="input" type="url" name="longUrl" placeholder="https://your-long-url.com/..." required></label>
+              <label>Custom alias<input class="input mono" name="customSlug" placeholder="launch" maxlength="64"></label>
+              <label>Title<input class="input" name="title" placeholder="Summer launch" maxlength="160"></label>
+            </div>
+            <details class="advanced-box">
+              <summary>Advanced controls <span>tags, notes, expiry, max visits</span></summary>
+              <div class="advanced-grid">
+                <label>Tags<input class="input" name="tags" placeholder="campaign, social, summer"><span class="field-help">Up to 12. Letters, numbers, - and _.</span></label>
+                <label>Internal notes<textarea class="input" name="notes" rows="3" maxlength="2000" placeholder="Only you can see this note."></textarea></label>
+                <label>Expire at <span class="pro-inline">PRO</span><input class="input" type="datetime-local" name="expiresAt"></label>
+                <label>Max visits <span class="pro-inline">PRO</span><input class="input" type="number" min="1" max="10000000" name="maxVisits" placeholder="No limit"></label>
+              </div>
+            </details>
+            <div class="create-footer"><div id="createLocked" class="small muted hidden">Verify your email and accept the current Terms before creating links.</div><button id="createLinkBtn" class="btn btn-primary" type="submit">Create short link</button></div>
+          </form>
+        </section>
+
+        <section class="panel link-workspace">
+          <div class="panel-head link-head"><div><h2>Link library</h2><span id="libraryMeta" class="muted small">Loading…</span></div><div class="head-actions"><button id="bulkBtn" class="btn btn-sm">Bulk create</button><a class="btn btn-sm" href="/api/links/export.csv">Export CSV</a><button id="refreshBtn" class="btn btn-sm btn-ghost">Refresh</button></div></div>
+          <form id="linkFilters" class="link-filters">
+            <label class="search-field"><span>⌕</span><input class="input" name="q" placeholder="Search URL, alias, title, or notes"></label>
+            <select class="input" name="status"><option value="all">All states</option><option value="active">Active</option><option value="disabled">Disabled</option><option value="archived">Archived</option><option value="expired">Expired</option></select>
+            <input class="input" name="tag" placeholder="Filter tag">
+            <button class="btn" type="submit">Filter</button>
+            <button id="clearFiltersBtn" class="btn btn-ghost" type="button">Clear</button>
+          </form>
+          <div id="linkList" class="link-list qh-link-list"><div class="empty">Loading your links…</div></div>
+          <div class="pagination"><button id="prevPageBtn" class="btn btn-sm" type="button">← Previous</button><span id="pageMeta" class="muted small">—</span><button id="nextPageBtn" class="btn btn-sm" type="button">Next →</button></div>
+        </section>
+      </section>
+
+      <section id="billingPanel" class="panel dashboard-section hidden">
+        <div class="section-hero"><div><div class="section-kicker">PLAN & BILLING</div><h2>Pay for power, not basic shortening.</h2><p class="muted">Free is a real usable plan. Pro unlocks high-volume and automation features.</p></div></div>
+        <div class="plan-grid">
+          <article class="plan-card"><div class="plan-name">Free</div><div class="plan-price">$0</div><ul><li>25 active links</li><li>Custom aliases</li><li>Tags and private notes</li><li>QR codes</li><li>Visit analytics</li><li>Archive and restore</li></ul></article>
+          <article class="plan-card featured"><div class="pro-chip">QH8Z PRO</div><div class="plan-name">Pro</div><div class="plan-price">$6<span>/mo</span></div><ul><li>5,000 active links</li><li>Everything in Free</li><li>Link expiration</li><li>Max-visit limits</li><li>Bulk creation</li><li>Developer API tokens</li></ul><button id="upgradeBtn" class="btn btn-primary" type="button">Upgrade to Pro</button><button id="portalBtn" class="btn" type="button">Manage billing</button></article>
+        </div>
+      </section>
+
+      <section id="developerPanel" class="panel dashboard-section hidden">
+        <div class="section-hero"><div><div class="section-kicker">DEVELOPER</div><h2>Automate QH8Z.</h2><p class="muted">Create scoped bearer tokens for the QH8Z v1 API. Raw tokens are shown exactly once.</p></div><span class="pro-chip">PRO</span></div>
+        <div id="apiTokenProNotice" class="notice hidden">Developer API token creation requires QH8Z Pro. Existing tokens remain visible so you can revoke them after a downgrade.</div>
+        <form id="apiTokenForm" class="api-token-form">
+          <label>Token name<input class="input" name="name" maxlength="80" placeholder="Production deploy" required></label>
+          <label>Expires<input class="input" type="number" min="1" max="3650" name="expiresInDays" value="365"></label>
+          <label class="check-row"><input type="checkbox" name="read" checked><span>Read links</span></label>
+          <label class="check-row"><input type="checkbox" name="write" checked><span>Write links</span></label>
+          <button class="btn btn-primary" type="submit">Create API token</button>
+        </form>
+        <div class="code-sample"><div class="code-label">Example</div><pre>curl https://qh8z.com/api/v1/links \
+  -H "Authorization: Bearer qh8z_live_..."</pre></div>
+        <div class="panel-head"><h3>API tokens</h3><button id="refreshTokensBtn" class="btn btn-sm">Refresh</button></div>
+        <div id="apiTokenList" class="token-list"><div class="empty">No tokens loaded.</div></div>
+      </section>
+
+      <section id="accountPanel" class="panel dashboard-section hidden">
+        <div class="section-hero"><div><div class="section-kicker">ACCOUNT</div><h2>Identity & security.</h2><p class="muted">Keep the account that owns your links protected and portable.</p></div></div>
+        <div class="account-grid">
+          <div class="subpanel"><h3>Change password</h3><form id="passwordForm" class="form-stack"><input class="input" type="password" name="currentPassword" placeholder="Current password" required><input class="input" type="password" name="newPassword" minlength="10" placeholder="New password (10+ chars)" required><button class="btn" type="submit">Change password</button></form></div>
+          <div class="subpanel"><h3>Two-factor authentication</h3><div id="mfaStatus" class="small muted">Checking…</div><div class="button-row"><button id="mfaSetupBtn" class="btn btn-sm" type="button">Set up MFA</button><button id="mfaDisableBtn" class="btn btn-sm btn-danger hidden" type="button">Disable MFA</button></div></div>
+          <div class="subpanel"><h3>Your data</h3><p class="muted small">Download the account and link metadata QH8Z stores for you.</p><a class="btn" href="/api/account/export">Export my data</a></div>
+          <div class="subpanel danger-zone"><h3>Danger zone</h3><p class="muted small">Permanently delete your account, disable active links, and cancel active billing.</p><button id="deleteAccountBtn" class="btn btn-danger" type="button">Delete account</button></div>
+        </div>
+      </section>
+
+      <section id="adminPanel" class="panel dashboard-section hidden">
+        <div class="section-hero"><div><div class="section-kicker">TRUST & SAFETY</div><h2>Protect the domain.</h2><p class="muted">Review reports, disable abusive links, and suspend accounts without exposing Shlink administration publicly.</p></div><button id="adminRefreshBtn" class="btn btn-sm">Refresh</button></div>
+        <h3 class="subhead">Abuse queue</h3><div id="reportList" class="muted">No reports loaded.</div>
+        <h3 class="subhead">Users</h3><form id="adminUserSearch" class="search-row"><input class="input" name="q" placeholder="Search email or name"><button class="btn btn-sm" type="submit">Search</button></form><div id="userList" class="muted">No users loaded.</div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="editDialog"><div class="dialog-body dialog-wide"><div class="dialog-head"><div><div class="section-kicker">EDIT LINK</div><h3 id="editTitle">Update redirect</h3></div><button class="btn btn-sm" data-close-dialog="editDialog">Close</button></div><form id="editForm" class="form-stack"><input type="hidden" name="id"><label>Destination<input class="input" type="url" name="longUrl" required></label><label>Title<input class="input" name="title" maxlength="160"></label><label>Tags<input class="input" name="tags" placeholder="campaign, social"></label><label>Internal notes<textarea class="input" name="notes" rows="3" maxlength="2000"></textarea></label><div class="two-col"><label>Expire at <span class="pro-inline">PRO</span><input class="input" type="datetime-local" name="expiresAt"></label><label>Max visits <span class="pro-inline">PRO</span><input class="input" type="number" min="1" max="10000000" name="maxVisits"></label></div><button class="btn btn-primary" type="submit">Save changes</button></form></div></dialog>
+
+  <dialog id="detailDialog"><div class="dialog-body dialog-xl"><div class="dialog-head"><div><div class="section-kicker">LINK DETAILS</div><h3 id="detailTitle">Analytics</h3></div><button class="btn btn-sm" data-close-dialog="detailDialog">Close</button></div><div id="detailSummary" class="detail-summary"></div><div id="visitBars" class="visit-bars"></div><div class="panel-head"><h4>Recent visits</h4><span id="visitMeta" class="small muted"></span></div><div id="visitTable" class="visit-table"><div class="empty">Loading visits…</div></div></div></dialog>
+
+  <dialog id="bulkDialog"><div class="dialog-body dialog-wide"><div class="dialog-head"><div><div class="section-kicker">PRO BULK TOOLS</div><h3>Create up to 100 links</h3></div><button class="btn btn-sm" data-close-dialog="bulkDialog">Close</button></div><p class="muted small">Paste one destination per line, or use <code>URL,alias,title</code>. Blank aliases and titles are fine.</p><textarea id="bulkInput" class="input mono bulk-input" rows="12" placeholder="https://example.com/one,first,First campaign\nhttps://example.com/two"></textarea><div class="button-row"><button id="bulkSubmitBtn" class="btn btn-primary" type="button">Create links</button><span id="bulkStatus" class="muted small"></span></div><div id="bulkResults" class="bulk-results"></div></div></dialog>
+
+  <dialog id="apiTokenDialog"><div class="dialog-body"><div class="dialog-head"><div><div class="section-kicker">TOKEN CREATED</div><h3>Copy it now.</h3></div><button class="btn btn-sm" data-close-dialog="apiTokenDialog">Close</button></div><div class="notice"><strong>This token will not be shown again.</strong> Store it in a password manager or secret store.</div><pre id="newApiToken" class="token-secret"></pre><button id="copyApiTokenBtn" class="btn btn-primary" type="button">Copy token</button></div></dialog>
+
+  <dialog id="mfaSetupDialog"><div class="dialog-body"><div class="dialog-head"><h3>Protect your QH8Z account</h3><button class="btn btn-sm" data-close-dialog="mfaSetupDialog">Close</button></div><form id="mfaStartForm" class="form-stack"><p class="muted">Use an authenticator app that supports TOTP. Your password is required before QH8Z reveals the setup secret.</p><label>Current password<input class="input" type="password" name="password" autocomplete="current-password" required></label><button class="btn btn-primary" type="submit">Generate authenticator setup</button></form><div id="mfaConfirmView" class="hidden"><div class="qr-box"><img id="mfaQr" alt="Authenticator QR code"></div><p class="small muted">Manual secret: <code id="mfaSecret" class="mono"></code></p><form id="mfaConfirmForm" class="form-stack"><label>6-digit authenticator code<input class="input mono" name="code" inputmode="numeric" autocomplete="one-time-code" required></label><button class="btn btn-primary" type="submit">Enable MFA</button></form></div><div id="mfaRecoveryView" class="hidden"><div class="notice"><strong>Save these recovery codes now.</strong> Each works once. They will not be shown again.</div><pre id="mfaRecoveryCodes" class="recovery-codes"></pre><button class="btn btn-primary" data-close-dialog="mfaSetupDialog" type="button">I saved them</button></div></div></dialog>
+
+  <dialog id="qrDialog"><div class="dialog-body"><div class="dialog-head"><h3>QR code</h3><button class="btn btn-sm" data-close-dialog="qrDialog">Close</button></div><div id="qrBox" class="qr-box"></div><p id="qrUrl" class="mono small qr-url"></p></div></dialog>
+
+  <script src="/assets/app.js" type="module"></script>
+</body>
+</html>
