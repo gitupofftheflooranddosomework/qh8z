@@ -16,6 +16,13 @@ const emailLike = value => {
   const email = trimmed(value).toLowerCase();
   return email.length <= 254 && /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(email);
 };
+const mailFromLike = value => {
+  const raw = trimmed(value);
+  if (!raw || /[\r\n]/.test(raw)) return false;
+  const bracketed = raw.match(/^(?:[^<>]{0,120})<([^<>]+)>$/);
+  return emailLike(bracketed ? bracketed[1] : raw);
+};
+const placeholderLike = value => /(?:replace-me|replace-with|change-me)/i.test(String(value || ''));
 const integerBetween = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
 const hostnameLike = value => {
   const host = trimmed(value).toLowerCase();
@@ -58,7 +65,7 @@ export const config = Object.freeze({
   smtpPort: int(process.env.SMTP_PORT, 587),
   smtpSecure: bool(process.env.SMTP_SECURE, false),
   smtpRequireTls: bool(process.env.SMTP_REQUIRE_TLS, true),
-  smtpUser: process.env.SMTP_USER || '',
+  smtpUser: trimmed(process.env.SMTP_USER),
   smtpPass: process.env.SMTP_PASS || '',
   retentionDays: int(process.env.DATA_RETENTION_DAYS, 365),
   reputationRecheckHours: int(process.env.REPUTATION_RECHECK_HOURS, 24),
@@ -108,6 +115,11 @@ export function startupProblems() {
   if (!config.webRiskRequired || !config.webRiskApiKey) problems.push('Google Web Risk must be configured and required');
   if (!config.turnstileRequired || !config.turnstileSiteKey || !config.turnstileSecretKey) problems.push('Cloudflare Turnstile must be configured and required');
   if (config.mailMode !== 'smtp' || !config.smtpHost || !config.mailFrom) problems.push('SMTP email delivery must be configured');
+  if (!mailFromLike(config.mailFrom)) problems.push('MAIL_FROM must contain a valid sender email address without control characters');
+  const smtpUserSet = Boolean(config.smtpUser);
+  const smtpPassSet = Boolean(config.smtpPass);
+  if (smtpUserSet !== smtpPassSet) problems.push('SMTP_USER and SMTP_PASS must be configured together or both left blank for an unauthenticated relay');
+  if (placeholderLike(config.smtpUser) || placeholderLike(config.smtpPass)) problems.push('SMTP credentials must not contain template placeholder values');
   if (!integerBetween(config.smtpPort, 1, 65535)) problems.push('SMTP_PORT must be an integer between 1 and 65535');
   if (!config.shlinkApiKey || config.shlinkApiKey.length < 24) problems.push('SHLINK_API_KEY must be a strong secret');
   if (!emailLike(config.adminEmail) || config.adminEmail.endsWith('.example') || config.adminEmail.includes('replace-with')) problems.push('ADMIN_EMAIL must be the real administrator email');
