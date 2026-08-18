@@ -73,7 +73,6 @@ export function startupProblems() {
     problems.push('APP_BASE_URL and PUBLIC_SHORT_BASE_URL must be valid absolute URLs');
   }
   if (!config.cookieSecure) problems.push('COOKIE_SECURE must be true');
-  if (!config.allowSignup) problems.push('ALLOW_SIGNUP must be true for a public launch');
   if (!config.emailVerificationRequired) problems.push('EMAIL_VERIFICATION_REQUIRED must be true');
   if (!config.webRiskRequired || !config.webRiskApiKey) problems.push('Google Web Risk must be configured and required');
   if (!config.turnstileRequired || !config.turnstileSiteKey || !config.turnstileSecretKey) problems.push('Cloudflare Turnstile must be configured and required');
