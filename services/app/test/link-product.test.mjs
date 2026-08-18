@@ -40,3 +40,9 @@ test('CSV export quotes commas and quotes without corrupting rows', () => {
   assert.match(csv, /"Say ""hello"""/);
   assert.match(csv, /"x,y"/);
 });
+
+test('CSV export neutralizes spreadsheet formula prefixes', () => {
+  const csv = linksToCsv([{ short_code: 'formula', long_url: 'https://example.com', title: '=HYPERLINK("https://evil.example")', tags: ['safe'], notes: '+SUM(1,1)', created_at: '2026-08-18T00:00:00Z' }]);
+  assert.match(csv, /"'=HYPERLINK\(""https:\/\/evil\.example""\)"/);
+  assert.match(csv, /"'\+SUM\(1,1\)"/);
+});
