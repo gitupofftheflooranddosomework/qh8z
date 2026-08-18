@@ -53,16 +53,16 @@ async function clearCreateIntent(shortCode) {
 }
 
 async function observeShortCode(shortCode) {
-  try {
-    return { found: true, value: await getShortUrl(shortCode) };
-  } catch (error) {
+  try { return { found: true, value: await getShortUrl(shortCode) }; }
+  catch (error) {
     if (error?.status === 404) return { found: false, value: null };
     throw error;
   }
 }
 
 function sameDestination(a, b) {
-  try { return new URL(String(a)).toString() === new URL(String(b)).toString(); } catch { return false; }
+  try { return new URL(String(a)).toString() === new URL(String(b)).toString(); }
+  catch { return false; }
 }
 
 function createPayload({ longUrl, candidate, title, tags, validUntil, maxVisits }) {
@@ -97,7 +97,6 @@ export async function createShortUrl({ longUrl, customSlug, title, tags = [], va
     try {
       // Product DB ownership always wins. The only exception is a deliberate
       // restore of this exact QH8Z link, identified by its immutable link ID.
-      // This prevents another account from recreating a disabled/missing slug.
       const owned = await pool.query('SELECT id FROM links WHERE short_code=$1 LIMIT 1', [candidate]);
       if (owned.rows[0] && owned.rows[0].id !== allowOwnedLinkId) {
         await clearCreateIntent(candidate);
@@ -109,9 +108,9 @@ export async function createShortUrl({ longUrl, customSlug, title, tags = [], va
 
       const before = await observeShortCode(candidate);
       if (before.found) {
-        // A prior delete or create can have an ambiguous network result. During
-        // an owned restore, the already-live redirect is acceptable only when
-        // it points to the policy-checked QH8Z destination for this same link.
+        // During an owned restore, an already-live redirect is acceptable only
+        // when it belongs to this exact QH8Z record and still has the expected
+        // policy-checked destination.
         if (allowOwnedLinkId && owned.rows[0]?.id === allowOwnedLinkId && sameDestination(before.value?.longUrl, longUrl)) {
           await clearCreateIntent(candidate);
           return { ...before.value, shortCode: before.value?.shortCode || candidate };
@@ -141,11 +140,11 @@ export async function createShortUrl({ longUrl, customSlug, title, tags = [], va
         throw error;
       }
 
+      // POST timeouts are ambiguous. Resolve the known candidate by reading it
+      // back; if the exact target exists, ownership can continue safely.
       try {
         const after = await observeShortCode(candidate);
-        if (after.found && sameDestination(after.value?.longUrl, longUrl)) {
-          return { ...after.value, shortCode: after.value?.shortCode || candidate };
-        }
+        if (after.found && sameDestination(after.value?.longUrl, longUrl)) return { ...after.value, shortCode: after.value?.shortCode || candidate };
         if (!after.found) await clearCreateIntent(candidate);
       } catch (lookupError) {
         console.warn(JSON.stringify({ level: 'warn', event: 'shlink.create_ambiguous', shortCode: candidate, message: lookupError.message }));
@@ -180,9 +179,32 @@ export function deleteShortUrl(shortCode) {
   return request(`/rest/v3/short-urls/${encodeURIComponent(shortCode)}`, { method: 'DELETE' });
 }
 
-export function getVisits(shortCode, page = 1, itemsPerPage = 50) {
-  const safePage = Math.max(Number(page) || 1, 1);
-  const safeItems = Math.min(Math.max(Number(itemsPerPage) || 50, 1), 100);
+export async function getVisits(shortCode, page = 1, itemsPerPage = 50) {
+  const pageNumber = Number(page);
+  const itemsNumber = Number(itemsPerPage);
+  const safePage = Number.isSafeInteger(pageNumber) && pageNumber > 0 ? pageNumber : 1;
+  const safeItems = Number.isSafeInteger(itemsNumber) && itemsNumber > 0 ? Math.min(itemsNumber, 100) : 50;
   const query = new URLSearchParams({ page: String(safePage), itemsPerPage: String(safeItems) });
-  return request(`/rest/v3/short-urls/${encodeURIComponent(shortCode)}/visits?${query}`, { method: 'GET' });
+  try {
+    return await request(`/rest/v3/short-urls/${encodeURIComponent(shortCode)}/visits?${query}`, { method: 'GET' });
+  } catch (error) {
+    // QH8Z deliberately removes disabled redirects from Shlink while retaining
+    // the product record. Treat missing upstream visit history as an empty,
+    // stable analytics result so disabled-link Details still opens cleanly.
+    if (error?.status === 404) {
+      return {
+        visits: {
+          data: [],
+          pagination: {
+            currentPage: safePage,
+            pagesCount: 0,
+            itemsPerPage: safeItems,
+            itemsInCurrentPage: 0,
+            totalItems: 0,
+          },
+        },
+      };
+    }
+    throw error;
+  }
 }
