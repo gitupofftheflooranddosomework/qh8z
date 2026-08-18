@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# PostgreSQL's entrypoint may source non-executable .sh files. Keep strict shell
+# options inside a subshell so they cannot leak into the parent entrypoint.
+(
 set -euo pipefail
 
 : "${QH8Z_DB_PASSWORD:?QH8Z_DB_PASSWORD is required}"
@@ -18,3 +21,4 @@ CREATE DATABASE shlink OWNER shlink_app;
 REVOKE CONNECT ON DATABASE shlink FROM PUBLIC;
 GRANT CONNECT ON DATABASE shlink TO shlink_app;
 SQL
+)
