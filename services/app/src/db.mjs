@@ -158,6 +158,24 @@ export async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS shlink_create_intents_created_idx ON shlink_create_intents(created_at);
 
+    -- Once QH8Z ownership is committed, the pre-Shlink create journal has done
+    -- its job and must disappear in the same database transaction. Keeping an
+    -- owned intent around until a later janitor pass makes immediate
+    -- disable/restore look like a concurrent create and incorrectly return 409.
+    DELETE FROM shlink_create_intents intent
+      USING links link
+      WHERE intent.short_code=link.short_code;
+    CREATE OR REPLACE FUNCTION qh8z_finalize_shlink_create_intent() RETURNS TRIGGER AS $$
+    BEGIN
+      DELETE FROM shlink_create_intents WHERE short_code=NEW.short_code;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+    DROP TRIGGER IF EXISTS qh8z_finalize_shlink_create_intent_trigger ON links;
+    CREATE TRIGGER qh8z_finalize_shlink_create_intent_trigger
+      AFTER INSERT ON links
+      FOR EACH ROW EXECUTE FUNCTION qh8z_finalize_shlink_create_intent();
+
     CREATE TABLE IF NOT EXISTS api_tokens (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
