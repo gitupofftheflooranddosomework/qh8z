@@ -39,12 +39,12 @@ jobs:
       WEB_RISK_REQUIRED: 'false'
       REPUTATION_RECHECK_HOURS: '0'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Boot and exercise the public stack
         run: bash scripts/integration.sh
       - name: Upload compose logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qh8z-compose-logs
           path: /tmp/qh8z-compose.log
@@ -82,12 +82,12 @@ jobs:
       WEB_RISK_REQUIRED: 'false'
       REPUTATION_RECHECK_HOURS: '0'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Back up, destroy, restore, and verify both databases
         run: bash scripts/backup-restore-integration.sh
       - name: Upload compose logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qh8z-backup-restore-compose-logs
           path: /tmp/qh8z-backup-restore-compose.log
