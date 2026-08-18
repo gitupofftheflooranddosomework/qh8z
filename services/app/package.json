@@ -1,21 +1,22 @@
 {
   "name": "@qh8z/app",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "node src/server.mjs",
-    "check": "node --check src/server.mjs && node --check src/auth.mjs && node --check src/db.mjs && node --check src/shlink.mjs && node --check src/billing.mjs && node --check src/reputation.mjs && node --check src/validation.mjs",
+    "check": "node --check src/server.mjs && node --check src/bootstrap-admin.mjs && node --check src/auth.mjs && node --check src/db.mjs && node --check src/shlink.mjs && node --check src/billing.mjs && node --check src/reputation.mjs && node --check src/validation.mjs && node --check src/tokens.mjs && node --check src/mailer.mjs && node --check src/mfa.mjs && node --check src/turnstile.mjs && node --check src/destination.mjs && node --check public/app.js && node --check public/auth-public.js && node --check public/report.js",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
-    "express": "^5.2.1",
-    "express-rate-limit": "^8.4.1",
-    "helmet": "^8.1.0",
-    "pg": "^8.16.3",
-    "qrcode": "^1.5.4",
-    "stripe": "^22.3.2"
+    "bcryptjs": "3.0.3",
+    "express": "5.2.1",
+    "express-rate-limit": "8.6.1",
+    "helmet": "8.3.0",
+    "nodemailer": "9.0.3",
+    "pg": "8.16.3",
+    "qrcode": "1.5.4",
+    "stripe": "22.3.2"
   }
 }
