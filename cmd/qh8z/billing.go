@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -26,9 +25,15 @@ func configureBilling(environment string) error {
 		billingProvider = billing.Disabled{}
 		return nil
 	case "stripe":
-		secretKey := os.Getenv("STRIPE_SECRET_KEY")
-		webhookSecret := os.Getenv("STRIPE_WEBHOOK_SECRET")
-		priceID := os.Getenv("STRIPE_PRO_PRICE_ID")
+		secretKey, err := secretValue("STRIPE_SECRET_KEY")
+		if err != nil {
+			return err
+		}
+		webhookSecret, err := secretValue("STRIPE_WEBHOOK_SECRET")
+		if err != nil {
+			return err
+		}
+		priceID := envOr("STRIPE_PRO_PRICE_ID", "")
 		if secretKey == "" || webhookSecret == "" || priceID == "" {
 			return errors.New("STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_PRO_PRICE_ID are required for Stripe billing")
 		}
