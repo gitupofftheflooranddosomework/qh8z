@@ -72,8 +72,11 @@ export async function migrate() {
     );
     ALTER TABLE links ADD COLUMN IF NOT EXISTS reputation_checked_at TIMESTAMPTZ;
     ALTER TABLE links ADD COLUMN IF NOT EXISTS reputation_status TEXT NOT NULL DEFAULT 'unknown';
+    ALTER TABLE links ADD COLUMN IF NOT EXISTS consistency_checked_at TIMESTAMPTZ;
+    ALTER TABLE links ADD COLUMN IF NOT EXISTS consistency_mismatch_at TIMESTAMPTZ;
     CREATE INDEX IF NOT EXISTS links_user_id_created_idx ON links(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS links_reputation_due_idx ON links(reputation_checked_at) WHERE disabled_at IS NULL;
+    CREATE INDEX IF NOT EXISTS links_consistency_due_idx ON links(consistency_checked_at) WHERE disabled_at IS NULL;
 
     CREATE TABLE IF NOT EXISTS abuse_reports (
       id TEXT PRIMARY KEY,
