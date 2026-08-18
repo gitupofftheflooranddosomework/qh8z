@@ -37,12 +37,12 @@ func TestPostgresStoreRoundTrip(t *testing.T) {
 	verificationHash := testHash("verification-" + suffix)
 
 	reg := core.Registration{
-		User: core.User{ID: userID, Email: email, PasswordHash: "test-hash", CreatedAt: now},
-		Workspace: core.Workspace{ID: workspaceID, Name: "Test Workspace", CreatedAt: now},
-		Membership: core.Membership{WorkspaceID: workspaceID, UserID: userID, Role: core.RoleOwner, CreatedAt: now},
+		User:         core.User{ID: userID, Email: email, PasswordHash: "test-hash", CreatedAt: now},
+		Workspace:    core.Workspace{ID: workspaceID, Name: "Test Workspace", CreatedAt: now},
+		Membership:   core.Membership{WorkspaceID: workspaceID, UserID: userID, Role: core.RoleOwner, CreatedAt: now},
 		Verification: core.EmailVerification{TokenHash: verificationHash, UserID: userID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)},
-		Session: core.Session{TokenHash: sessionHash, UserID: userID, CreatedAt: now, ExpiresAt: now.Add(time.Hour), LastSeenAt: now},
-		Audit: []core.AuditEntry{{WorkspaceID: workspaceID, ActorUserID: userID, Action: "workspace.created", ResourceType: "workspace", ResourceID: workspaceID, CreatedAt: now}},
+		Session:      core.Session{TokenHash: sessionHash, UserID: userID, CreatedAt: now, ExpiresAt: now.Add(time.Hour), LastSeenAt: now},
+		Audit:        []core.AuditEntry{{WorkspaceID: workspaceID, ActorUserID: userID, Action: "workspace.created", ResourceType: "workspace", ResourceID: workspaceID, CreatedAt: now}},
 	}
 	if err := s.Register(ctx, reg); err != nil {
 		t.Fatalf("register: %v", err)
