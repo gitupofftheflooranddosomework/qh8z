@@ -40,6 +40,10 @@ backup_path=$(bash scripts/backup.sh /tmp/qh8z-backups)
 [[ -s "$backup_path" ]]
 [[ -s "$backup_path.sha256" ]]
 
+# backup.sh stops and restarts the app. The stop must drain through the Node
+# lifecycle handler rather than falling back to Docker SIGKILL/abrupt exit.
+docker compose --profile production logs --no-color app | grep -q '"event":"app.shutdown_completed"'
+
 # A successful backup must return the previously running public stack without
 # recreating healthy dependencies or leaving the edge unavailable.
 for _ in $(seq 1 60); do
@@ -70,4 +74,4 @@ count=$(docker compose exec -T db psql -U postgres -d qh8z -Atc "SELECT COUNT(*)
 restored_redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/backup-ci)
 [[ "$restored_redirect" == "https://example.com/backup-restored" ]]
 
-echo 'QH8Z backup/restore drill passed with database role isolation and HTTPS recovery.'
+echo 'QH8Z backup/restore drill passed with graceful app shutdown, database role isolation, and HTTPS recovery.'
