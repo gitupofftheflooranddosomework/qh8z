@@ -29,6 +29,40 @@ done
 [[ "$ready" == "1" ]]
 assert_db_isolation
 
+# The Free-plan limit must be atomic, not a best-effort COUNT before create.
+# Seed 24 active rows, then race two independent PostgreSQL transactions for
+# slots 25 and 26. Exactly one insert may commit.
+docker compose exec -T db psql -U postgres -d qh8z -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+INSERT INTO users(id,email,password_hash,name,plan)
+VALUES('quota-ci-user','quota-ci@example.com','not-used-in-ci','Quota CI','free');
+DO $$
+BEGIN
+  FOR i IN 1..24 LOOP
+    INSERT INTO links(id,user_id,short_code,long_url,title)
+    VALUES('quota-fill-' || i,'quota-ci-user','quota-fill-' || i,'https://example.com/quota/' || i,'Quota filler');
+  END LOOP;
+END $$;
+SQL
+quota_before=$(docker compose exec -T db psql -U postgres -d qh8z -Atc "SELECT COUNT(*) FROM links WHERE user_id='quota-ci-user' AND disabled_at IS NULL;")
+[[ "$quota_before" == "24" ]]
+set +e
+docker compose exec -T db psql -U postgres -d qh8z -v ON_ERROR_STOP=1 -c "INSERT INTO links(id,user_id,short_code,long_url) VALUES('quota-race-a','quota-ci-user','quota-race-a','https://example.com/quota/a');" >/tmp/qh8z-quota-a.log 2>&1 &
+quota_pid_a=$!
+docker compose exec -T db psql -U postgres -d qh8z -v ON_ERROR_STOP=1 -c "INSERT INTO links(id,user_id,short_code,long_url) VALUES('quota-race-b','quota-ci-user','quota-race-b','https://example.com/quota/b');" >/tmp/qh8z-quota-b.log 2>&1 &
+quota_pid_b=$!
+wait "$quota_pid_a"; quota_status_a=$?
+wait "$quota_pid_b"; quota_status_b=$?
+set -e
+if [[ "$quota_status_a" == "0" && "$quota_status_b" == "0" ]] || [[ "$quota_status_a" != "0" && "$quota_status_b" != "0" ]]; then
+  echo "Expected exactly one concurrent quota insert to succeed; got statuses $quota_status_a and $quota_status_b" >&2
+  cat /tmp/qh8z-quota-a.log /tmp/qh8z-quota-b.log >&2
+  exit 1
+fi
+quota_after=$(docker compose exec -T db psql -U postgres -d qh8z -Atc "SELECT COUNT(*) FROM links WHERE user_id='quota-ci-user' AND disabled_at IS NULL;")
+[[ "$quota_after" == "25" ]]
+cat /tmp/qh8z-quota-a.log /tmp/qh8z-quota-b.log | grep -q 'link plan limit reached'
+docker compose exec -T db psql -U postgres -d qh8z -v ON_ERROR_STOP=1 -c "DELETE FROM users WHERE id='quota-ci-user';" >/dev/null
+
 # Simulate an ambiguous create handoff: Shlink has a live redirect, QH8Z has no
 # ownership row, but the pre-mutation create intent survived. Reconciliation
 # must remove the unclaimed redirect and the journal entry.
@@ -88,4 +122,4 @@ count=$(docker compose exec -T db psql -U postgres -d qh8z -Atc "SELECT COUNT(*)
 restored_redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/backup-ci)
 [[ "$restored_redirect" == "https://example.com/backup-restored" ]]
 
-echo 'QH8Z backup/restore drill passed with orphan cleanup, graceful app shutdown, database role isolation, and HTTPS recovery.'
+echo 'QH8Z backup/restore drill passed with concurrent quota enforcement, orphan cleanup, graceful app shutdown, database role isolation, and HTTPS recovery.'
