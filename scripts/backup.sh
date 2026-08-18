@@ -20,21 +20,27 @@ restart_previous_services() {
   # single no-recreate transaction. Separate `up` calls can unexpectedly
   # recreate an already healthy dependency.
   if [[ "$caddy_was_running" == "1" ]]; then
-    "${compose[@]}" --profile production up -d --no-recreate caddy >/dev/null 2>&1 || true
+    "${compose[@]}" --profile production up -d --no-recreate caddy >/dev/null 2>&1
     return
   fi
   local services=()
   [[ "$shlink_was_running" == "1" ]] && services+=(shlink)
   [[ "$app_was_running" == "1" ]] && services+=(app)
   if [[ ${#services[@]} -gt 0 ]]; then
-    "${compose[@]}" up -d --no-recreate "${services[@]}" >/dev/null 2>&1 || true
+    "${compose[@]}" up -d --no-recreate "${services[@]}" >/dev/null 2>&1
   fi
 }
 
 cleanup() {
+  local status=$?
   rm -rf "$tmp"
-  restart_previous_services
+  if ! restart_previous_services; then
+    echo "Backup cleanup could not restore the previously running QH8Z services." >&2
+    if [[ $status -eq 0 ]]; then status=5; fi
+  fi
   if [[ "$backup_complete" != "1" ]]; then echo "Backup failed; previously running services were restarted where possible." >&2; fi
+  trap - EXIT
+  exit "$status"
 }
 trap cleanup EXIT
 
