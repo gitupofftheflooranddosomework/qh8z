@@ -6,9 +6,9 @@ const base = {
   ...process.env,
   NODE_ENV: 'production',
   PUBLIC_LAUNCH_MODE: 'true',
-  QH8Z_DOMAIN: 'qh8z.test',
-  APP_BASE_URL: 'https://qh8z.test',
-  PUBLIC_SHORT_BASE_URL: 'https://qh8z.test',
+  QH8Z_DOMAIN: 'qh8z.testhost.com',
+  APP_BASE_URL: 'https://qh8z.testhost.com',
+  PUBLIC_SHORT_BASE_URL: 'https://qh8z.testhost.com',
   COOKIE_SECURE: 'true',
   ALLOW_SIGNUP: 'true',
   EMAIL_VERIFICATION_REQUIRED: 'true',
@@ -18,13 +18,13 @@ const base = {
   TURNSTILE_SITE_KEY: 'test-site-key',
   TURNSTILE_SECRET_KEY: 'test-secret-key',
   MAIL_MODE: 'smtp',
-  SMTP_HOST: 'smtp.qh8z.test',
+  SMTP_HOST: 'smtp.testhost.com',
   SMTP_PORT: '587',
   SMTP_USER: '',
   SMTP_PASS: '',
-  MAIL_FROM: 'QH8Z <support@qh8z.test>',
+  MAIL_FROM: 'QH8Z <support@testhost.com>',
   SHLINK_API_KEY: 's'.repeat(32),
-  ADMIN_EMAIL: 'admin@qh8z.test',
+  ADMIN_EMAIL: 'admin@testhost.com',
   ADMIN_BOOTSTRAP_SECRET: 'b'.repeat(32),
   PORT: '3000',
   SESSION_TTL_DAYS: '30',
@@ -35,8 +35,8 @@ const base = {
   REPUTATION_WORKER_MINUTES: '15',
   MFA_ENCRYPTION_KEY: 'ab'.repeat(32),
   TERMS_VERSION: '2026-08-17',
-  SUPPORT_EMAIL: 'support@qh8z.test',
-  ABUSE_EMAIL: 'abuse@qh8z.test',
+  SUPPORT_EMAIL: 'support@testhost.com',
+  ABUSE_EMAIL: 'abuse@testhost.com',
   LEGAL_OPERATOR_NAME: 'QH8Z Test Operator',
   LEGAL_JURISDICTION: 'Test Jurisdiction',
   STRIPE_SECRET_KEY: '',
@@ -58,16 +58,22 @@ test('public launch refuses missing Turnstile', () => assert.ok(problems({ TURNS
 test('public launch refuses placeholder admin identity', () => assert.ok(problems({ ADMIN_EMAIL: 'admin@example.example' }).some(x => x.includes('ADMIN_EMAIL'))));
 test('public launch refuses insecure cookie mode', () => assert.ok(problems({ COOKIE_SECURE: 'false' }).some(x => x.includes('COOKIE_SECURE'))));
 test('public launch requires origin-only base URLs', () => {
-  assert.ok(problems({ APP_BASE_URL: 'https://qh8z.test/app' }).some(x => x.includes('APP_BASE_URL')));
-  assert.ok(problems({ PUBLIC_SHORT_BASE_URL: 'https://qh8z.test/s' }).some(x => x.includes('PUBLIC_SHORT_BASE_URL')));
-  assert.ok(problems({ APP_BASE_URL: 'https://user:pass@qh8z.test' }).some(x => x.includes('APP_BASE_URL')));
-  assert.ok(problems({ PUBLIC_SHORT_BASE_URL: 'https://qh8z.test?x=1' }).some(x => x.includes('PUBLIC_SHORT_BASE_URL')));
+  assert.ok(problems({ APP_BASE_URL: 'https://qh8z.testhost.com/app' }).some(x => x.includes('APP_BASE_URL')));
+  assert.ok(problems({ PUBLIC_SHORT_BASE_URL: 'https://qh8z.testhost.com/s' }).some(x => x.includes('PUBLIC_SHORT_BASE_URL')));
+  assert.ok(problems({ APP_BASE_URL: 'https://user:pass@qh8z.testhost.com' }).some(x => x.includes('APP_BASE_URL')));
+  assert.ok(problems({ PUBLIC_SHORT_BASE_URL: 'https://qh8z.testhost.com?x=1' }).some(x => x.includes('PUBLIC_SHORT_BASE_URL')));
 });
 test('public launch binds generated URLs to the configured Caddy host', () => {
   assert.ok(problems({ QH8Z_DOMAIN: '' }).some(x => x.includes('QH8Z_DOMAIN')));
-  assert.ok(problems({ QH8Z_DOMAIN: 'qh8z.test/path' }).some(x => x.includes('QH8Z_DOMAIN')));
-  assert.ok(problems({ APP_BASE_URL: 'https://other.test' }).some(x => x.includes('APP_BASE_URL host')));
-  assert.ok(problems({ PUBLIC_SHORT_BASE_URL: 'https://other.test' }).some(x => x.includes('PUBLIC_SHORT_BASE_URL host')));
+  assert.ok(problems({ QH8Z_DOMAIN: 'qh8z.testhost.com/path' }).some(x => x.includes('QH8Z_DOMAIN')));
+  assert.ok(problems({ APP_BASE_URL: 'https://other.testhost.com' }).some(x => x.includes('APP_BASE_URL host')));
+  assert.ok(problems({ PUBLIC_SHORT_BASE_URL: 'https://other.testhost.com' }).some(x => x.includes('PUBLIC_SHORT_BASE_URL host')));
+});
+test('public launch requires a genuinely public fully qualified hostname', () => {
+  for (const domain of ['localhost', 'qh8z.local', 'qh8z.test', 'qh8z.invalid', 'qh8z.example', 'qh8z.internal', '127.0.0.1']) {
+    const p = problems({ QH8Z_DOMAIN: domain, APP_BASE_URL: `https://${domain}`, PUBLIC_SHORT_BASE_URL: `https://${domain}` });
+    assert.ok(p.some(x => x.includes('public fully qualified hostname')), domain);
+  }
 });
 test('public launch rejects malformed numeric values instead of accepting prefixes', () => {
   assert.ok(problems({ PORT: '3000oops' }).some(x => x.includes('PORT')));
@@ -77,7 +83,7 @@ test('public launch rejects malformed numeric values instead of accepting prefix
 });
 test('public launch rejects invalid SMTP sender and half-configured credentials', () => {
   assert.ok(problems({ MAIL_FROM: 'not-an-email' }).some(x => x.includes('MAIL_FROM')));
-  assert.ok(problems({ MAIL_FROM: 'QH8Z <support@qh8z.test>\nBcc: attacker@example.com' }).some(x => x.includes('MAIL_FROM')));
+  assert.ok(problems({ MAIL_FROM: 'QH8Z <support@testhost.com>\nBcc: attacker@example.com' }).some(x => x.includes('MAIL_FROM')));
   assert.ok(problems({ SMTP_USER: 'mailer', SMTP_PASS: '' }).some(x => x.includes('configured together')));
   assert.ok(problems({ SMTP_USER: '', SMTP_PASS: 'secret' }).some(x => x.includes('configured together')));
   assert.ok(problems({ SMTP_USER: 'replace-me', SMTP_PASS: 'replace-me' }).some(x => x.includes('placeholder')));
@@ -94,6 +100,6 @@ test('public launch cannot silently disable recurring reputation scanning', () =
 });
 test('public launch rejects unsafe retention bounds', () => assert.ok(problems({ DATA_RETENTION_DAYS: '1' }).some(x => x.includes('DATA_RETENTION_DAYS'))));
 test('public launch rejects malformed contact and legal presentation values', () => {
-  assert.ok(problems({ SUPPORT_EMAIL: 'support@qh8z.test<script>' }).some(x => x.includes('Support and abuse')));
+  assert.ok(problems({ SUPPORT_EMAIL: 'support@testhost.com<script>' }).some(x => x.includes('Support and abuse')));
   assert.ok(problems({ LEGAL_OPERATOR_NAME: '<b>QH8Z</b>' }).some(x => x.includes('plain text')));
 });
