@@ -19,14 +19,25 @@ jobs:
       SHLINK_HTTPS_ENABLED: 'false'
       COOKIE_SECURE: 'false'
       ALLOW_SIGNUP: 'true'
+      PUBLIC_LAUNCH_MODE: 'false'
+      EMAIL_VERIFICATION_REQUIRED: 'true'
+      TERMS_VERSION: '2026-08-17'
+      DEV_EXPOSE_AUTH_TOKENS: 'true'
       ADMIN_EMAIL: admin@example.com
       ADMIN_BOOTSTRAP_SECRET: qh8z-ci-admin-bootstrap-secret-2026
+      MFA_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       SUPPORT_EMAIL: support@example.com
+      ABUSE_EMAIL: abuse@example.com
+      LEGAL_OPERATOR_NAME: QH8Z CI
+      LEGAL_JURISDICTION: Test
+      MAIL_MODE: log
+      TURNSTILE_REQUIRED: 'false'
       SKIP_INITIAL_GEOLITE_DOWNLOAD: 'true'
       WEB_RISK_REQUIRED: 'false'
+      REPUTATION_RECHECK_HOURS: '0'
     steps:
       - uses: actions/checkout@v4
-      - name: Boot and exercise the full stack
+      - name: Boot and exercise the public stack
         run: bash scripts/integration.sh
       - name: Upload compose logs on failure
         if: failure()
