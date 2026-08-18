@@ -88,7 +88,9 @@ export function normalizeLinkFields(input = {}, existing = null, user = null) {
   const expiresAt = input.expiresAt === undefined && existing ? existing.expires_at : normalizeExpiresAt(input.expiresAt);
   const maxVisits = input.maxVisits === undefined && existing ? existing.max_visits : normalizeMaxVisits(input.maxVisits);
 
-  if ((expiresAt || maxVisits) && user && !isPro(user)) requireProFeature(user);
+  const changingExpiry = input.expiresAt !== undefined && Boolean(expiresAt);
+  const changingMaxVisits = input.maxVisits !== undefined && Boolean(maxVisits);
+  if ((changingExpiry || changingMaxVisits) && user && !isPro(user)) requireProFeature(user);
   return { longUrl, customSlug, title, notes, tags, expiresAt, maxVisits };
 }
 
@@ -205,12 +207,28 @@ export async function disableLink(user, link, eventType = 'link.disabled') {
 export async function restoreLink(user, link) {
   if (!link.disabled_at) return publicLink(link);
   await friendlyPlanLimit(user);
-  const fields = normalizeLinkFields({}, link, user);
+
+  const storedExpiry = link.expires_at ? new Date(link.expires_at) : null;
+  const expiryStillUsable = storedExpiry && Number.isFinite(storedExpiry.getTime()) && storedExpiry.getTime() > Date.now() + 60_000;
+  const restoreExpiry = isPro(user) && expiryStillUsable ? storedExpiry.toISOString() : null;
+  const restoreMaxVisits = isPro(user) ? link.max_visits : null;
+  const fields = {
+    longUrl: normalizeHttpUrl(link.long_url),
+    title: link.title,
+    notes: link.notes,
+    tags: Array.isArray(link.tags) ? link.tags : [],
+    expiresAt: restoreExpiry,
+    maxVisits: restoreMaxVisits,
+  };
+
   await validateDestination(fields.longUrl, user.id, link.id);
   await createShortUrl({ longUrl: fields.longUrl, customSlug: link.short_code, title: fields.title, tags: fields.tags, validUntil: fields.expiresAt, maxVisits: fields.maxVisits });
   try {
-    const { rows } = await pool.query('UPDATE links SET disabled_at=NULL,updated_at=NOW() WHERE id=$1 RETURNING *', [link.id]);
-    await audit(user.id, 'link.restored', link.id, { shortCode: link.short_code });
+    const { rows } = await pool.query(
+      'UPDATE links SET disabled_at=NULL,expires_at=$1,max_visits=$2,updated_at=NOW() WHERE id=$3 RETURNING *',
+      [fields.expiresAt, fields.maxVisits, link.id]
+    );
+    await audit(user.id, 'link.restored', link.id, { shortCode: link.short_code, advancedControlsRetained: Boolean(fields.expiresAt || fields.maxVisits) });
     return publicLink(rows[0]);
   } catch (error) {
     try { await deleteShortUrl(link.short_code); } catch {}
