@@ -1,7 +1,7 @@
 import { pool } from './db.mjs';
 import { decryptMfaSecret } from './mfa.mjs';
 
-export function adminMfaEncryptionProblems(admins) {
+export function adminMfaEncryptionProblems(admins, decrypt = decryptMfaSecret) {
   const problems = [];
   for (const admin of admins || []) {
     if (!admin?.mfa_enabled_at) continue;
@@ -10,7 +10,7 @@ export function adminMfaEncryptionProblems(admins) {
       continue;
     }
     try {
-      const secret = decryptMfaSecret(admin.mfa_secret_enc);
+      const secret = decrypt(admin.mfa_secret_enc);
       if (!/^[A-Z2-7]{16,}$/i.test(String(secret || ''))) problems.push(`administrator ${admin.id || 'unknown'} has an invalid decrypted MFA secret`);
     } catch {
       problems.push(`administrator ${admin.id || 'unknown'} MFA secret cannot be decrypted with MFA_ENCRYPTION_KEY`);
