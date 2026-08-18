@@ -1,29 +1,29 @@
 www.{$QH8Z_DOMAIN} {
-  redir https://{$QH8Z_DOMAIN}{uri} permanent
+	redir https://{$QH8Z_DOMAIN}{uri} permanent
 }
 
 {$QH8Z_DOMAIN} {
-  encode zstd gzip
-  log {
-    output stdout
-    format json
-  }
-  header {
-    Strict-Transport-Security "max-age=31536000; includeSubDomains"
-    X-Content-Type-Options "nosniff"
-    X-Frame-Options "DENY"
-    Referrer-Policy "no-referrer"
-    Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(self)"
-  }
-  @shlinkApi path /rest/*
-  handle @shlinkApi {
-    respond "Not found" 404
-  }
-  @product path / /app /app/* /login /signup /verify /forgot /reset /privacy /terms /security /report /healthz /readyz /favicon.svg /robots.txt /.well-known/security.txt /api/* /assets/*
-  handle @product {
-    reverse_proxy app:3000
-  }
-  handle {
-    reverse_proxy shlink:8080
-  }
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(self)"
+	}
+
+	@shlinkApi path /rest /rest/*
+	handle @shlinkApi {
+		respond "Not found" 404
+	}
+
+	@product path / /app /app/* /login /signup /verify /forgot /reset /privacy /terms /security /report /healthz /readyz /favicon.svg /robots.txt /.well-known/security.txt /api/* /assets/*
+	handle @product {
+		reverse_proxy app:3000
+	}
+
+	handle {
+		reverse_proxy shlink:8080
+	}
 }
