@@ -6,7 +6,7 @@ ADMIN_JAR=/tmp/qh8z-admin-cookies.txt
 USER_JAR=/tmp/qh8z-user-cookies.txt
 
 cleanup() {
-  docker compose logs --no-color > /tmp/qh8z-compose.log 2>&1 || true
+  docker compose --profile production logs --no-color > /tmp/qh8z-compose.log 2>&1 || true
   docker compose --profile production down -v --remove-orphans >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -29,17 +29,19 @@ PY
 docker compose --profile production config >/dev/null
 docker run --rm -e QH8Z_DOMAIN=qh8z.com -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 
-docker compose up -d --build db shlink app
+# Boot exactly the same production profile shape used by deploy.sh. Starting the
+# app first and adding Caddy in a second `compose up` can recreate dependencies
+# and tests a lifecycle production never uses.
+docker compose --profile production up -d --build --remove-orphans
 
 ready=0
 for _ in $(seq 1 90); do
   if curl -fsS http://localhost:3000/readyz >/tmp/qh8z-ready.json 2>/dev/null; then ready=1; break; fi
   sleep 2
 done
-if [[ "$ready" != "1" ]]; then docker compose logs --no-color; exit 1; fi
+if [[ "$ready" != "1" ]]; then docker compose --profile production logs --no-color; exit 1; fi
 
-# Start the real production edge on localhost TLS and verify upstream management is not exposed.
-docker compose --profile production up -d caddy
+# Verify the real production edge on localhost TLS and prove upstream management is not exposed.
 edge_ready=0
 for _ in $(seq 1 60); do
   if curl -kfsS https://localhost/healthz >/tmp/qh8z-edge-health.json 2>/dev/null; then edge_ready=1; break; fi
@@ -48,6 +50,8 @@ done
 if [[ "$edge_ready" != "1" ]]; then docker compose --profile production logs --no-color caddy; exit 1; fi
 edge_api_status=$(curl -ksS -o /dev/null -w '%{http_code}' https://localhost/rest/health)
 [[ "$edge_api_status" == "404" ]]
+edge_api_root_status=$(curl -ksS -o /dev/null -w '%{http_code}' https://localhost/rest)
+[[ "$edge_api_root_status" == "404" ]]
 curl -kfsS -D /tmp/qh8z-edge-headers.txt -o /dev/null https://localhost/
 grep -qi '^strict-transport-security:' /tmp/qh8z-edge-headers.txt
 grep -qi '^x-content-type-options: nosniff' /tmp/qh8z-edge-headers.txt
