@@ -112,8 +112,8 @@ type CustomDomain struct {
 }
 
 type WorkspaceUsage struct {
-	WorkspaceID          string `json:"workspaceId"`
-	PlanCode             string `json:"plan"`
+	WorkspaceID           string `json:"workspaceId"`
+	PlanCode              string `json:"plan"`
 	Links                 int64  `json:"links"`
 	CustomDomains         int64  `json:"customDomains"`
 	LinksCreatedThisMonth int64  `json:"linksCreatedThisMonth"`
