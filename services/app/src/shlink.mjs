@@ -65,7 +65,21 @@ function sameDestination(a, b) {
   try { return new URL(String(a)).toString() === new URL(String(b)).toString(); } catch { return false; }
 }
 
-export async function createShortUrl({ longUrl, customSlug, title }) {
+function createPayload({ longUrl, candidate, title, tags, validUntil, maxVisits }) {
+  return {
+    longUrl,
+    customSlug: candidate,
+    ...(title ? { title } : {}),
+    ...(Array.isArray(tags) && tags.length ? { tags } : {}),
+    ...(validUntil ? { validUntil } : {}),
+    ...(maxVisits ? { maxVisits } : {}),
+    findIfExists: false,
+    crawlable: false,
+    forwardQuery: true,
+  };
+}
+
+export async function createShortUrl({ longUrl, customSlug, title, tags = [], validUntil = null, maxVisits = null }) {
   const suppliedSlug = Boolean(customSlug);
   const maxAttempts = suppliedSlug ? 1 : 8;
 
@@ -81,10 +95,6 @@ export async function createShortUrl({ longUrl, customSlug, title }) {
 
     let postAttempted = false;
     try {
-      // QH8Z ownership wins even if the redirect engine temporarily lost the
-      // corresponding short URL. Never recreate an alias already present in the
-      // product database for another request/user and rely on a later unique
-      // constraint to catch it—that would create a brief wrong-target window.
       const owned = await pool.query('SELECT id FROM links WHERE short_code=$1 LIMIT 1', [candidate]);
       if (owned.rows[0]) {
         await clearCreateIntent(candidate);
@@ -106,7 +116,7 @@ export async function createShortUrl({ longUrl, customSlug, title }) {
       postAttempted = true;
       const created = await request('/rest/v3/short-urls', {
         method: 'POST',
-        body: JSON.stringify({ longUrl, customSlug: candidate, ...(title ? { title } : {}), findIfExists: false, crawlable: false, forwardQuery: true })
+        body: JSON.stringify(createPayload({ longUrl, candidate, title, tags, validUntil, maxVisits }))
       });
       return { ...created, shortCode: created?.shortCode || candidate };
     } catch (error) {
@@ -143,8 +153,17 @@ export function getShortUrl(shortCode) {
   return request(`/rest/v3/short-urls/${encodeURIComponent(shortCode)}`, { method: 'GET' });
 }
 
-export function editShortUrl(shortCode, { longUrl, title }) {
-  return request(`/rest/v3/short-urls/${encodeURIComponent(shortCode)}`, { method: 'PATCH', body: JSON.stringify({ longUrl, title: title ?? null }) });
+export function editShortUrl(shortCode, { longUrl, title, tags = [], validUntil = null, maxVisits = null }) {
+  return request(`/rest/v3/short-urls/${encodeURIComponent(shortCode)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      longUrl,
+      title: title ?? null,
+      tags: Array.isArray(tags) ? tags : [],
+      validUntil: validUntil || null,
+      maxVisits: maxVisits || null,
+    })
+  });
 }
 
 export function deleteShortUrl(shortCode) {
@@ -152,6 +171,8 @@ export function deleteShortUrl(shortCode) {
 }
 
 export function getVisits(shortCode, page = 1, itemsPerPage = 50) {
-  const query = new URLSearchParams({ page: String(page), itemsPerPage: String(itemsPerPage) });
+  const safePage = Math.max(Number(page) || 1, 1);
+  const safeItems = Math.min(Math.max(Number(itemsPerPage) || 50, 1), 100);
+  const query = new URLSearchParams({ page: String(safePage), itemsPerPage: String(safeItems) });
   return request(`/rest/v3/short-urls/${encodeURIComponent(shortCode)}/visits?${query}`, { method: 'GET' });
 }
