@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeTags, normalizeLinkFields, publicLink, linksToCsv } from '../src/link-service.mjs';
+import { normalizeTags, normalizeLinkFields, normalizePagination, publicLink, linksToCsv } from '../src/link-service.mjs';
 
 test('tags are normalized, deduplicated, and validated', () => {
   assert.deepEqual(normalizeTags('Launch, launch, Summer_26'), ['launch', 'summer_26']);
@@ -24,6 +24,14 @@ test('downgraded Free account can preserve existing Pro controls during ordinary
   assert.equal(fields.title, 'New title');
   assert.equal(fields.expiresAt, existing.expires_at);
   assert.equal(fields.maxVisits, 500);
+});
+
+test('pagination rejects non-integers and unreasonable offsets without leaking DB errors', () => {
+  assert.deepEqual(normalizePagination({}), { limit: 25, offset: 0 });
+  assert.deepEqual(normalizePagination({ limit: '100', offset: '50' }), { limit: 100, offset: 50 });
+  assert.deepEqual(normalizePagination({ limit: 'Infinity', offset: '1.5' }), { limit: 25, offset: 0 });
+  assert.deepEqual(normalizePagination({ limit: '-5', offset: '-1' }), { limit: 25, offset: 0 });
+  assert.deepEqual(normalizePagination({ limit: '1000', offset: '99999999' }), { limit: 100, offset: 1000000 });
 });
 
 test('link state precedence is disabled, archived, expired, active', () => {
