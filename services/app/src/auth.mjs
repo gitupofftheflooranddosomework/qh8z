@@ -15,10 +15,20 @@ function hashToken(token) {
 }
 
 function parseCookies(header = '') {
-  return Object.fromEntries(header.split(';').map(part => part.trim()).filter(Boolean).map(part => {
-    const idx = part.indexOf('=');
-    return idx === -1 ? [part, ''] : [part.slice(0, idx), decodeURIComponent(part.slice(idx + 1))];
-  }));
+  const cookies = Object.create(null);
+  for (const part of String(header || '').split(';')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const idx = trimmed.indexOf('=');
+    const name = idx === -1 ? trimmed : trimmed.slice(0, idx);
+    const rawValue = idx === -1 ? '' : trimmed.slice(idx + 1);
+    try {
+      cookies[name] = decodeURIComponent(rawValue);
+    } catch {
+      // Malformed percent-encoding is an invalid cookie, not a server error.
+    }
+  }
+  return cookies;
 }
 
 function sensitiveKey(req, userId) {
