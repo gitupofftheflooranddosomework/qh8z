@@ -125,14 +125,19 @@ export async function migrate() {
       account_limit INTEGER;
       active_count INTEGER;
     BEGIN
-      IF NEW.disabled_at IS NOT NULL THEN
+      IF NEW.disabled_at IS NOT NULL OR (NEW.expires_at IS NOT NULL AND NEW.expires_at <= NOW()) THEN
         RETURN NEW;
       END IF;
 
       PERFORM pg_advisory_xact_lock(hashtext(NEW.user_id), hashtext('qh8z-link-plan-limit'));
       SELECT plan INTO account_plan FROM users WHERE id=NEW.user_id;
       account_limit := CASE account_plan WHEN 'pro' THEN 5000 ELSE 25 END;
-      SELECT COUNT(*)::int INTO active_count FROM links WHERE user_id=NEW.user_id AND disabled_at IS NULL AND id IS DISTINCT FROM NEW.id;
+      SELECT COUNT(*)::int INTO active_count
+        FROM links
+        WHERE user_id=NEW.user_id
+          AND disabled_at IS NULL
+          AND (expires_at IS NULL OR expires_at > NOW())
+          AND id IS DISTINCT FROM NEW.id;
 
       IF active_count >= account_limit THEN
         RAISE EXCEPTION 'link plan limit reached'
@@ -143,7 +148,7 @@ export async function migrate() {
     $$ LANGUAGE plpgsql;
     DROP TRIGGER IF EXISTS qh8z_enforce_link_plan_limit_trigger ON links;
     CREATE TRIGGER qh8z_enforce_link_plan_limit_trigger
-      BEFORE INSERT OR UPDATE OF disabled_at ON links
+      BEFORE INSERT OR UPDATE OF disabled_at,expires_at ON links
       FOR EACH ROW EXECUTE FUNCTION qh8z_enforce_link_plan_limit();
 
     CREATE TABLE IF NOT EXISTS shlink_create_intents (
