@@ -22,6 +22,7 @@ const base = {
   SHLINK_API_KEY: 's'.repeat(32),
   ADMIN_EMAIL: 'admin@qh8z.test',
   ADMIN_BOOTSTRAP_SECRET: 'b'.repeat(32),
+  ADMIN_SESSION_HOURS: '12',
   MFA_ENCRYPTION_KEY: 'ab'.repeat(32),
   TERMS_VERSION: '2026-08-17',
   SUPPORT_EMAIL: 'support@qh8z.test',
@@ -41,6 +42,8 @@ function problems(overrides = {}) {
 }
 
 test('complete public configuration passes static launch checks', () => assert.deepEqual(problems(), []));
+test('post-bootstrap configuration may remove the one-time bootstrap secret', () => assert.deepEqual(problems({ ADMIN_BOOTSTRAP_SECRET: '' }), []));
 test('public launch refuses missing Turnstile', () => assert.ok(problems({ TURNSTILE_SECRET_KEY: '' }).some(x => x.includes('Turnstile'))));
 test('public launch refuses placeholder admin identity', () => assert.ok(problems({ ADMIN_EMAIL: 'admin@example.example' }).some(x => x.includes('ADMIN_EMAIL'))));
 test('public launch refuses insecure cookie mode', () => assert.ok(problems({ COOKIE_SECURE: 'false' }).some(x => x.includes('COOKIE_SECURE'))));
+test('public launch rejects overly long admin sessions', () => assert.ok(problems({ ADMIN_SESSION_HOURS: '48' }).some(x => x.includes('ADMIN_SESSION_HOURS'))));
