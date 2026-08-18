@@ -52,6 +52,7 @@ services:
     build:
       context: ./services/app
     restart: unless-stopped
+    stop_grace_period: 20s
     depends_on:
       db:
         condition: service_healthy
