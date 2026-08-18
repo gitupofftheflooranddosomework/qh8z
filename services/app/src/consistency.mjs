@@ -4,6 +4,7 @@ import { getShortUrl, editShortUrl, deleteShortUrl } from './shlink.mjs';
 
 const DEFAULT_CONFIRM_AFTER_MS = 5 * 60_000;
 const CHECK_INTERVAL_MINUTES = 60;
+const RECONCILE_CONCURRENCY = 10;
 
 function normalizedUrl(value) {
   try { return new URL(String(value || '')).toString(); } catch { return null; }
@@ -88,16 +89,15 @@ export async function reconcileTrackedLink(link, { confirmAfterMs = DEFAULT_CONF
   }
 
   // The QH8Z row is the policy-checked ownership record. Repair Shlink back to
-  // that state. If the mutation times out after committing, a follow-up GET
-  // resolves the ambiguity before we consider fail-closed deletion.
-  let repaired = false;
+  // that state. A follow-up GET is mandatory because mutation timeouts are
+  // ambiguous: Shlink may have committed even when the response was lost.
   try {
     await editShortUrl(current.short_code, { longUrl: current.long_url, title: current.title });
-    repaired = true;
   } catch (error) {
     console.warn(JSON.stringify({ level: 'warn', event: 'consistency.repair_request_failed', linkId: current.id, message: error.message }));
   }
 
+  let repaired = false;
   try {
     const after = await observeUpstream(current);
     repaired = after.found && trackedLinkMatches(current, after.value);
@@ -111,13 +111,28 @@ export async function reconcileTrackedLink(link, { confirmAfterMs = DEFAULT_CONF
     return 'repaired';
   }
 
+  let deleted = false;
   try {
     await deleteShortUrl(current.short_code);
+    deleted = true;
   } catch (error) {
-    if (error?.status !== 404) {
-      console.error(JSON.stringify({ level: 'error', event: 'consistency.fail_closed_delete_failed', linkId: current.id, message: error.message }));
-      return 'repair_failed';
+    if (error?.status === 404) {
+      deleted = true;
+    } else {
+      // Resolve a timeout/network error by observing the resulting state. If the
+      // link is gone, fail-closed deletion actually succeeded despite the error.
+      try {
+        const afterDelete = await observeUpstream(current);
+        deleted = !afterDelete.found;
+      } catch (verifyError) {
+        console.error(JSON.stringify({ level: 'error', event: 'consistency.fail_closed_delete_unresolved', linkId: current.id, message: verifyError.message }));
+      }
     }
+  }
+
+  if (!deleted) {
+    console.error(JSON.stringify({ level: 'error', event: 'consistency.fail_closed_delete_failed', linkId: current.id }));
+    return 'repair_failed';
   }
   await markMissing(current, 'persistent_upstream_mismatch');
   return 'disabled_mismatch';
@@ -138,14 +153,16 @@ export async function reconcileDueLinks({ confirmAfterMs = DEFAULT_CONFIRM_AFTER
   );
 
   const results = { checked: 0, consistent: 0, repaired: 0, disabled: 0, pending: 0, failed: 0 };
-  for (const link of rows) {
-    const outcome = await reconcileTrackedLink(link, { confirmAfterMs });
-    results.checked += 1;
-    if (outcome === 'consistent') results.consistent += 1;
-    else if (outcome === 'repaired') results.repaired += 1;
-    else if (outcome.startsWith('disabled_')) results.disabled += 1;
-    else if (outcome === 'mismatch_pending') results.pending += 1;
-    else if (outcome.endsWith('failed')) results.failed += 1;
+  for (let offset = 0; offset < rows.length; offset += RECONCILE_CONCURRENCY) {
+    const outcomes = await Promise.all(rows.slice(offset, offset + RECONCILE_CONCURRENCY).map(link => reconcileTrackedLink(link, { confirmAfterMs })));
+    for (const outcome of outcomes) {
+      results.checked += 1;
+      if (outcome === 'consistent') results.consistent += 1;
+      else if (outcome === 'repaired') results.repaired += 1;
+      else if (outcome.startsWith('disabled_')) results.disabled += 1;
+      else if (outcome === 'mismatch_pending') results.pending += 1;
+      else if (outcome.endsWith('failed')) results.failed += 1;
+    }
   }
   return results;
 }
