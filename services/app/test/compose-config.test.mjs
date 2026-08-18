@@ -16,3 +16,7 @@ test('Shlink keeps visitor addresses anonymized and direct dev port loopback-onl
   assert.match(compose, /ANONYMIZE_REMOTE_ADDR:\s*['"]true['"]/);
   assert.match(compose, /127\.0\.0\.1:\$\{SHLINK_DEV_PORT:-8080\}:8080/);
 });
+
+test('Shlink deletion remains unlimited so moderation can remove high-traffic links', () => {
+  assert.doesNotMatch(compose, /DELETE_SHORT_URL_THRESHOLD\s*:/);
+});
