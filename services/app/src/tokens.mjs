@@ -13,7 +13,7 @@ export async function createAuthToken(userId, purpose, ttlMinutes) {
     // Serializes replacement for the same user/purpose so concurrent resend,
     // reset, or MFA-challenge requests cannot leave multiple current tokens.
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [String(userId), String(purpose)]);
-    await client.query('DELETE FROM auth_tokens WHERE user_id=$1 AND purpose=$2 AND used_at IS NULL', [userId, purpose]);
+    await client.query('DELETE FROM auth_tokens WHERE user_id=$1 AND purpose=$2', [userId, purpose]);
     await client.query(
       "INSERT INTO auth_tokens(token_hash,user_id,purpose,expires_at) VALUES($1,$2,$3,NOW()+($4::text || ' minutes')::interval)",
       [hash(token), userId, purpose, Math.max(1, ttlMinutes)]
@@ -42,6 +42,21 @@ export async function consumeAuthToken(token, purpose) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Discover the lock key without taking a row lock first. Replacement takes
+    // the advisory lock before deleting rows, so taking locks in the same order
+    // prevents a consume-vs-replace deadlock.
+    const candidate = await client.query(
+      'SELECT user_id FROM auth_tokens WHERE token_hash=$1 AND purpose=$2 AND expires_at>NOW()',
+      [tokenHash, purpose]
+    );
+    const candidateUserId = candidate.rows[0]?.user_id;
+    if (!candidateUserId) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [String(candidateUserId), String(purpose)]);
+
     const current = await client.query(
       `SELECT user_id,used_at,expires_at FROM auth_tokens
        WHERE token_hash=$1 AND purpose=$2 AND expires_at>NOW()
@@ -49,7 +64,7 @@ export async function consumeAuthToken(token, purpose) {
       [tokenHash, purpose]
     );
     const row = current.rows[0];
-    if (!row) {
+    if (!row || row.user_id !== candidateUserId) {
       await client.query('ROLLBACK');
       return null;
     }
