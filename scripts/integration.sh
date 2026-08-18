@@ -48,10 +48,10 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 if [[ "$edge_ready" != "1" ]]; then docker compose --profile production logs --no-color caddy; exit 1; fi
-edge_api_status=$(curl -ksS -o /dev/null -w '%{http_code}' https://localhost/rest/health)
-[[ "$edge_api_status" == "404" ]]
-edge_api_root_status=$(curl -ksS -o /dev/null -w '%{http_code}' https://localhost/rest)
-[[ "$edge_api_root_status" == "404" ]]
+for path in '/rest' '/rest/health' '/%72est/health' '/r%65st/health' '/re%73t/health'; do
+  edge_api_status=$(curl -ksS --path-as-is -o /dev/null -w '%{http_code}' "https://localhost${path}")
+  [[ "$edge_api_status" == "404" ]] || { echo "Shlink management path escaped Caddy block: $path returned $edge_api_status" >&2; exit 1; }
+done
 curl -kfsS -D /tmp/qh8z-edge-headers.txt -o /dev/null https://localhost/
 grep -qi '^strict-transport-security:' /tmp/qh8z-edge-headers.txt
 grep -qi '^x-content-type-options: nosniff' /tmp/qh8z-edge-headers.txt
