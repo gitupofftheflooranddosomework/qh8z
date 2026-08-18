@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { pool } from './db.mjs';
 
 const hash = token => crypto.createHash('sha256').update(token).digest('hex');
+const RECOVERABLE_PURPOSES = new Set(['verify_email', 'reset_password']);
+const STALE_CONSUMPTION_MINUTES = 2;
 
 export async function createAuthToken(userId, purpose, ttlMinutes) {
   const token = crypto.randomBytes(32).toString('base64url');
@@ -36,13 +38,54 @@ export async function getAuthTokenUser(token, purpose) {
 }
 
 export async function consumeAuthToken(token, purpose) {
-  const { rows } = await pool.query(
-    `UPDATE auth_tokens SET used_at=NOW()
-     WHERE token_hash=$1 AND purpose=$2 AND used_at IS NULL AND expires_at>NOW()
-     RETURNING user_id`,
-    [hash(String(token || '')), purpose]
-  );
-  return rows[0]?.user_id || null;
+  const tokenHash = hash(String(token || ''));
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const current = await client.query(
+      `SELECT user_id,used_at,expires_at FROM auth_tokens
+       WHERE token_hash=$1 AND purpose=$2 AND expires_at>NOW()
+       FOR UPDATE`,
+      [tokenHash, purpose]
+    );
+    const row = current.rows[0];
+    if (!row) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    if (row.used_at) {
+      const ageMs = Date.now() - new Date(row.used_at).getTime();
+      const recoverable = RECOVERABLE_PURPOSES.has(purpose) && Number.isFinite(ageMs) && ageMs >= STALE_CONSUMPTION_MINUTES * 60_000;
+      if (!recoverable) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      // Verification/reset mutations delete their corresponding tokens in the
+      // same PostgreSQL transaction via qh8z_revoke_tokens_after_user_update.
+      // A still-present, stale used token therefore means the authorized user
+      // mutation never committed and it is safe to retry consumption.
+      await client.query('UPDATE auth_tokens SET used_at=NULL WHERE token_hash=$1 AND purpose=$2', [tokenHash, purpose]);
+    }
+
+    const consumed = await client.query(
+      `UPDATE auth_tokens SET used_at=NOW()
+       WHERE token_hash=$1 AND purpose=$2 AND used_at IS NULL AND expires_at>NOW()
+       RETURNING user_id`,
+      [tokenHash, purpose]
+    );
+    if (!consumed.rows[0]) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    await client.query('COMMIT');
+    return consumed.rows[0].user_id;
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function revokeAuthTokens(userId, purpose = null) {
