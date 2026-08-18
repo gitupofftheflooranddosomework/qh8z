@@ -20,6 +20,8 @@ const base = {
   MAIL_MODE: 'smtp',
   SMTP_HOST: 'smtp.qh8z.test',
   SMTP_PORT: '587',
+  SMTP_USER: '',
+  SMTP_PASS: '',
   MAIL_FROM: 'QH8Z <support@qh8z.test>',
   SHLINK_API_KEY: 's'.repeat(32),
   ADMIN_EMAIL: 'admin@qh8z.test',
@@ -72,6 +74,14 @@ test('public launch rejects malformed numeric values instead of accepting prefix
   assert.ok(problems({ SMTP_PORT: '587tls' }).some(x => x.includes('SMTP_PORT')));
   assert.ok(problems({ SESSION_TTL_DAYS: '30days' }).some(x => x.includes('SESSION_TTL_DAYS')));
   assert.ok(problems({ REPUTATION_WORKER_MINUTES: '15m' }).some(x => x.includes('REPUTATION_WORKER_MINUTES')));
+});
+test('public launch rejects invalid SMTP sender and half-configured credentials', () => {
+  assert.ok(problems({ MAIL_FROM: 'not-an-email' }).some(x => x.includes('MAIL_FROM')));
+  assert.ok(problems({ MAIL_FROM: 'QH8Z <support@qh8z.test>\nBcc: attacker@example.com' }).some(x => x.includes('MAIL_FROM')));
+  assert.ok(problems({ SMTP_USER: 'mailer', SMTP_PASS: '' }).some(x => x.includes('configured together')));
+  assert.ok(problems({ SMTP_USER: '', SMTP_PASS: 'secret' }).some(x => x.includes('configured together')));
+  assert.ok(problems({ SMTP_USER: 'replace-me', SMTP_PASS: 'replace-me' }).some(x => x.includes('placeholder')));
+  assert.deepEqual(problems({ SMTP_USER: 'mailer', SMTP_PASS: 'strong-secret' }), []);
 });
 test('public launch rejects invalid user and admin session lifetimes', () => {
   assert.ok(problems({ SESSION_TTL_DAYS: '0' }).some(x => x.includes('SESSION_TTL_DAYS')));
