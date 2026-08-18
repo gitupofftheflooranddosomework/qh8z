@@ -80,7 +80,6 @@ export function startupProblems() {
   if (config.mailMode !== 'smtp' || !config.smtpHost || !config.mailFrom) problems.push('SMTP email delivery must be configured');
   if (!config.shlinkApiKey || config.shlinkApiKey.length < 24) problems.push('SHLINK_API_KEY must be a strong secret');
   if (!config.adminEmail || !config.adminEmail.includes('@') || config.adminEmail.endsWith('.example') || config.adminEmail.includes('replace-with')) problems.push('ADMIN_EMAIL must be the real administrator email');
-  if (!config.adminBootstrapSecret || config.adminBootstrapSecret.length < 24) problems.push('ADMIN_BOOTSTRAP_SECRET must be a strong one-time secret');
   if (!/^[0-9a-fA-F]{64}$/.test(config.mfaEncryptionKey)) problems.push('MFA_ENCRYPTION_KEY must be 32 random bytes encoded as 64 hex characters');
   if (config.adminSessionHours < 1 || config.adminSessionHours > 24) problems.push('ADMIN_SESSION_HOURS must be between 1 and 24');
   if (!config.termsVersion) problems.push('TERMS_VERSION is required');
