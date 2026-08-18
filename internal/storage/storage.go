@@ -32,6 +32,7 @@ type Store interface {
 	GetBillingState(context.Context, string) (core.BillingState, error)
 	UpsertBillingState(context.Context, core.BillingState, core.AuditEntry) error
 	ClaimBillingEvent(context.Context, string, time.Time) (bool, error)
+	ReleaseBillingEvent(context.Context, string) error
 
 	Register(context.Context, core.Registration) error
 	UserByEmail(context.Context, string) (core.User, error)
