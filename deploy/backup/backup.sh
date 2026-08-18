@@ -71,7 +71,15 @@ backup_once() {
 }
 
 if ! ensure_repository; then
-  echo "restic repository initialization failed; will retry" >&2
+  echo "restic repository initialization failed" >&2
+  if [ "${BACKUP_ONCE:-0}" = "1" ]; then
+    exit 1
+  fi
+fi
+
+if [ "${BACKUP_ONCE:-0}" = "1" ]; then
+  backup_once
+  exit $?
 fi
 
 while :; do
