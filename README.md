@@ -24,9 +24,9 @@ QH8Z is a commercial link-management product for `qh8z.com`. It combines the str
 - Free/Pro plan limits and optional Stripe subscriptions
 - abuse reporting, moderation queue, admin user controls and audit events
 - PostgreSQL with isolated QH8Z/Shlink databases
-- Caddy automatic HTTPS, security headers and access logging
-- readiness/liveness endpoints, backup/restore scripts and production pre/post-deploy checks
-- CI, dependency audit, Dependabot and full Docker end-to-end smoke tests
+- Caddy automatic HTTPS and security headers, with request access logging disabled in the shipped edge config to minimize raw visitor-IP retention
+- readiness/liveness endpoints, verifiable two-database backup/restore tooling, and production pre/post-deploy checks
+- deterministic npm lockfile, dependency audit, Dependabot, HTTPS Docker end-to-end tests, and destructive recovery drills
 - MIT notices/provenance for upstream code
 
 ## Architecture
@@ -47,7 +47,7 @@ QH8Z is a commercial link-management product for `qh8z.com`. It combines the str
                     qh8z DB + shlink DB
 ```
 
-Redirects bypass the Node product layer: visitors go Caddy -> Shlink -> destination. Customer/business operations go through QH8Z, which talks to Shlink only over its documented REST API.
+Redirects bypass the Node product layer: visitors go Caddy -> Shlink -> destination. Customer/business operations go through QH8Z, which talks to Shlink only over its documented REST API. Shlink's `/rest` management namespace is blocked at the public edge.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -73,7 +73,7 @@ bash scripts/bootstrap-admin.sh .env
 bash scripts/postdeploy.sh https://qh8z.com
 ```
 
-`PUBLIC_LAUNCH_MODE=true` deliberately refuses a healthy launch if critical protections such as HTTPS/secure cookies, verified-email mode, Web Risk, Turnstile, SMTP, legal operator metadata, or administrator MFA are missing.
+`PUBLIC_LAUNCH_MODE=true` deliberately refuses a healthy launch if critical protections such as HTTPS/secure cookies, verified-email mode, Web Risk, Turnstile, SMTP, legal operator metadata, or administrator MFA are missing. New signup can still be closed independently with `ALLOW_SIGNUP=false` without disabling the rest of the public security posture.
 
 Read [`docs/LAUNCH.md`](docs/LAUNCH.md) before opening signup publicly.
 
