@@ -106,4 +106,9 @@ status=$(curl -sS -o /dev/null -w '%{http_code}' -b "$USER_JAR" -H "Origin: $ORI
 for slug in ci-link ci-two; do disabled=$(curl -sS -H 'Host: localhost' -o /dev/null -w '%{redirect_url}' "http://localhost:8080/$slug" || true); [[ "$disabled" != https://example.com/* ]]; done
 curl -fsS -b "$ADMIN_JAR" -H "Origin: $ORIGIN" -X POST "http://localhost:3000/api/admin/users/${user_id}/unsuspend" >/dev/null
 
+# Destructive deletion on an MFA-protected account requires second-factor proof.
+status=$(curl -sS -o /tmp/qh8z-delete-admin.json -w '%{http_code}' -b "$ADMIN_JAR" -H "Origin: $ORIGIN" -H 'content-type: application/json' -X DELETE -d '{"password":"correct-horse-battery"}' http://localhost:3000/api/account)
+[[ "$status" == "401" ]]
+grep -q 'invalid_mfa_code' /tmp/qh8z-delete-admin.json
+
 echo 'QH8Z public-readiness integration smoke test passed.'
