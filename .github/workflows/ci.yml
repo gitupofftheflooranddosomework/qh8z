@@ -22,3 +22,6 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high
+      - name: Check operator shell scripts
+        working-directory: .
+        run: bash -n scripts/*.sh
