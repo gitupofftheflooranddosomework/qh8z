@@ -9,6 +9,12 @@ export function billingEnabled() {
 }
 
 export async function createCheckout(user) {
+  if (user?.plan === 'pro') {
+    const error = new Error('This account already has Pro access. Use the billing portal to manage the subscription.');
+    error.status = 409;
+    error.code = 'already_pro';
+    throw error;
+  }
   if (!billingEnabled()) throw new Error('Billing is not configured');
   return stripe.checkout.sessions.create({
     mode: 'subscription',
@@ -39,12 +45,20 @@ async function auditBilling(client, actorUserId, eventType, targetId = null, met
   );
 }
 
-async function applySubscription(client, subscription) {
+export async function applySubscription(client, subscription) {
   const userId = subscription.metadata?.user_id;
-  if (!userId) return;
+  if (!userId) return { applied: false, reason: 'missing_user_id' };
   const plan = proStatus(subscription.status) ? 'pro' : 'free';
-  await client.query('UPDATE users SET plan=$1,stripe_customer_id=COALESCE($2,stripe_customer_id) WHERE id=$3', [plan, subscription.customer || null, userId]);
+  const updated = await client.query(
+    'UPDATE users SET plan=$1,stripe_customer_id=COALESCE($2,stripe_customer_id) WHERE id=$3 RETURNING id',
+    [plan, subscription.customer || null, userId]
+  );
+  if (!updated.rows[0]) {
+    await auditBilling(client, null, 'billing.subscription_user_missing', userId, { subscriptionId: subscription.id, status: subscription.status });
+    return { applied: false, reason: 'user_missing' };
+  }
   await auditBilling(client, userId, plan === 'pro' ? 'billing.pro_active' : 'billing.pro_inactive', userId, { subscriptionId: subscription.id, status: subscription.status });
+  return { applied: true, plan };
 }
 
 export async function handleStripeWebhook(rawBody, signature) {
