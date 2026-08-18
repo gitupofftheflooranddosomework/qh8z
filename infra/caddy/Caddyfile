@@ -1,0 +1,37 @@
+www.{$QH8Z_DOMAIN} {
+	redir https://{$QH8Z_DOMAIN}{uri} permanent
+}
+
+{$QH8Z_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(self)"
+	}
+
+	@shlinkApi path /rest /rest/*
+	handle @shlinkApi {
+		respond "Not found" 404
+	}
+
+	# /assets is intentionally only for browser assets. HTML files in public/
+	# include route templates (including legal placeholders) and must never be
+	# reachable through the static-asset mount.
+	@rawTemplate path /assets/*.html /assets/.well-known/*
+	handle @rawTemplate {
+		respond "Not found" 404
+	}
+
+	@product path / /app /app/* /login /login/* /signup /signup/* /verify /verify/* /forgot /forgot/* /reset /reset/* /privacy /privacy/* /terms /terms/* /security /security/* /report /report/* /healthz /readyz /favicon.svg /robots.txt /.well-known/security.txt /api /api/* /assets /assets/*
+	handle @product {
+		reverse_proxy app:3000
+	}
+
+	handle {
+		reverse_proxy shlink:8080
+	}
+}

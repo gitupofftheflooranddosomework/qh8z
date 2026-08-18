@@ -1,0 +1,138 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: qh8z
+      QH8Z_DB_PASSWORD: ${QH8Z_DB_PASSWORD}
+      SHLINK_DB_PASSWORD: ${SHLINK_DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sh:/docker-entrypoint-initdb.d/01-qh8z.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d qh8z"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  shlink:
+    image: shlinkio/shlink:5.1.5
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DEFAULT_DOMAIN: ${QH8Z_DOMAIN:-localhost}
+      IS_HTTPS_ENABLED: ${SHLINK_HTTPS_ENABLED:-false}
+      DB_DRIVER: postgres
+      DB_NAME: shlink
+      DB_USER: shlink_app
+      DB_PASSWORD: ${SHLINK_DB_PASSWORD}
+      DB_HOST: db
+      DB_PORT: 5432
+      INITIAL_API_KEY: ${SHLINK_API_KEY}
+      REDIRECT_STATUS_CODE: 302
+      DEFAULT_INVALID_SHORT_URL_REDIRECT: ${APP_BASE_URL:-http://localhost:3000}
+      AUTO_RESOLVE_TITLES: 'false'
+      LOGS_FORMAT: console
+      GEOLITE_LICENSE_KEY: ${GEOLITE_LICENSE_KEY:-}
+      SKIP_INITIAL_GEOLITE_DOWNLOAD: ${SKIP_INITIAL_GEOLITE_DOWNLOAD:-true}
+      ANONYMIZE_REMOTE_ADDR: 'true'
+    ports:
+      - "127.0.0.1:${SHLINK_DEV_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "php -r 'exit(@fsockopen(\"127.0.0.1\", 8080) ? 0 : 1);'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  app:
+    build:
+      context: ./services/app
+    restart: unless-stopped
+    stop_grace_period: 20s
+    depends_on:
+      db:
+        condition: service_healthy
+      shlink:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      QH8Z_DOMAIN: ${QH8Z_DOMAIN:-localhost}
+      DATABASE_URL: postgresql://qh8z_app:${QH8Z_DB_PASSWORD}@db:5432/qh8z
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      PUBLIC_SHORT_BASE_URL: ${PUBLIC_SHORT_BASE_URL:-http://localhost:8080}
+      SHLINK_BASE_URL: http://shlink:8080
+      SHLINK_API_KEY: ${SHLINK_API_KEY}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      ADMIN_SESSION_HOURS: ${ADMIN_SESSION_HOURS:-12}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      PUBLIC_LAUNCH_MODE: ${PUBLIC_LAUNCH_MODE:-false}
+      EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-false}
+      TERMS_VERSION: ${TERMS_VERSION:-2026-08-17}
+      DEV_EXPOSE_AUTH_TOKENS: ${DEV_EXPOSE_AUTH_TOKENS:-false}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_BOOTSTRAP_SECRET: ${ADMIN_BOOTSTRAP_SECRET:-}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@qh8z.com}
+      ABUSE_EMAIL: ${ABUSE_EMAIL:-abuse@qh8z.com}
+      LEGAL_OPERATOR_NAME: ${LEGAL_OPERATOR_NAME:-}
+      LEGAL_JURISDICTION: ${LEGAL_JURISDICTION:-}
+      WEB_RISK_API_KEY: ${WEB_RISK_API_KEY:-}
+      WEB_RISK_REQUIRED: ${WEB_RISK_REQUIRED:-false}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      TURNSTILE_REQUIRED: ${TURNSTILE_REQUIRED:-false}
+      MAIL_MODE: ${MAIL_MODE:-log}
+      MAIL_FROM: ${MAIL_FROM:-QH8Z <support@qh8z.com>}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      DATA_RETENTION_DAYS: ${DATA_RETENTION_DAYS:-365}
+      REPUTATION_RECHECK_HOURS: ${REPUTATION_RECHECK_HOURS:-24}
+      REPUTATION_RECHECK_BATCH: ${REPUTATION_RECHECK_BATCH:-25}
+      REPUTATION_WORKER_MINUTES: ${REPUTATION_WORKER_MINUTES:-15}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRO_PRICE_ID: ${STRIPE_PRO_PRICE_ID:-}
+    ports:
+      - "127.0.0.1:${APP_DEV_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ["production"]
+    depends_on:
+      app:
+        condition: service_healthy
+      shlink:
+        condition: service_healthy
+    environment:
+      QH8Z_DOMAIN: ${QH8Z_DOMAIN:-qh8z.com}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,7 @@
+User-agent: *
+Disallow: /app
+Disallow: /api/
+Disallow: /verify
+Disallow: /forgot
+Disallow: /reset
+Allow: /
