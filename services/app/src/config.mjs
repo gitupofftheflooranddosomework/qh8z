@@ -28,6 +28,13 @@ const hostnameLike = value => {
   const host = trimmed(value).toLowerCase();
   return host.length <= 253 && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/.test(host);
 };
+const RESERVED_PUBLIC_SUFFIXES = ['localhost', 'local', 'test', 'invalid', 'example', 'internal'];
+const publicHostnameLike = value => {
+  const host = trimmed(value).toLowerCase().replace(/\.$/, '');
+  if (!hostnameLike(host) || !host.includes('.')) return false;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return false;
+  return !RESERVED_PUBLIC_SUFFIXES.some(suffix => host === suffix || host.endsWith(`.${suffix}`));
+};
 
 export const config = Object.freeze({
   env: process.env.NODE_ENV || 'development',
@@ -104,11 +111,11 @@ export function startupProblems() {
   if (billingValues.some(Boolean) && !billingValues.every(Boolean)) problems.push('Stripe must be configured with secret key, webhook secret, and Pro price ID together');
   if (!config.publicLaunchMode) return problems;
   if (config.env !== 'production') problems.push('PUBLIC_LAUNCH_MODE requires NODE_ENV=production');
-  if (!hostnameLike(config.qh8zDomain)) problems.push('QH8Z_DOMAIN must be a valid public hostname');
+  if (!publicHostnameLike(config.qh8zDomain)) problems.push('QH8Z_DOMAIN must be a public fully qualified hostname, not localhost, an IP address, or a reserved test/internal name');
   const appOrigin = requireHttpsOrigin(problems, 'APP_BASE_URL', config.appBaseUrl);
   const shortOrigin = requireHttpsOrigin(problems, 'PUBLIC_SHORT_BASE_URL', config.publicShortBaseUrl);
-  if (hostnameLike(config.qh8zDomain) && appOrigin && appOrigin.hostname.toLowerCase() !== config.qh8zDomain) problems.push('APP_BASE_URL host must exactly match QH8Z_DOMAIN');
-  if (hostnameLike(config.qh8zDomain) && shortOrigin && shortOrigin.hostname.toLowerCase() !== config.qh8zDomain) problems.push('PUBLIC_SHORT_BASE_URL host must exactly match QH8Z_DOMAIN');
+  if (publicHostnameLike(config.qh8zDomain) && appOrigin && appOrigin.hostname.toLowerCase() !== config.qh8zDomain) problems.push('APP_BASE_URL host must exactly match QH8Z_DOMAIN');
+  if (publicHostnameLike(config.qh8zDomain) && shortOrigin && shortOrigin.hostname.toLowerCase() !== config.qh8zDomain) problems.push('PUBLIC_SHORT_BASE_URL host must exactly match QH8Z_DOMAIN');
   if (!integerBetween(config.port, 1, 65535)) problems.push('PORT must be an integer between 1 and 65535');
   if (!config.cookieSecure) problems.push('COOKIE_SECURE must be true');
   if (!config.emailVerificationRequired) problems.push('EMAIL_VERIFICATION_REQUIRED must be true');
