@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { config } from './config.mjs';
+import { dependencyUnavailable } from './public-error.mjs';
 
 let transport;
 let lastVerify = { at: 0, ok: false };
@@ -48,8 +49,12 @@ async function send({ to, subject, text, html }) {
     console.log(JSON.stringify({ level: 'info', event: 'mail.log', to, subject, text }));
     return { logged: true };
   }
-  if (!mailerConfigured()) throw new Error('Email delivery is not configured');
-  return getTransport().sendMail({ from: config.mailFrom, to, subject, text, html });
+  if (!mailerConfigured()) throw dependencyUnavailable('mail_delivery_unavailable', 'Email delivery is temporarily unavailable.', new Error('Email delivery is not configured'), 'mail.not_configured');
+  try {
+    return await getTransport().sendMail({ from: config.mailFrom, to, subject, text, html });
+  } catch (cause) {
+    throw dependencyUnavailable('mail_delivery_unavailable', 'Email delivery is temporarily unavailable.', cause, 'mail.send_failed');
+  }
 }
 
 export function sendVerificationEmail(user, token) {
