@@ -18,10 +18,12 @@ const base = {
   TURNSTILE_SECRET_KEY: 'test-secret-key',
   MAIL_MODE: 'smtp',
   SMTP_HOST: 'smtp.qh8z.test',
+  SMTP_PORT: '587',
   MAIL_FROM: 'QH8Z <support@qh8z.test>',
   SHLINK_API_KEY: 's'.repeat(32),
   ADMIN_EMAIL: 'admin@qh8z.test',
   ADMIN_BOOTSTRAP_SECRET: 'b'.repeat(32),
+  PORT: '3000',
   SESSION_TTL_DAYS: '30',
   ADMIN_SESSION_HOURS: '12',
   DATA_RETENTION_DAYS: '365',
@@ -52,6 +54,18 @@ test('public security mode stays valid while new signup is temporarily closed', 
 test('public launch refuses missing Turnstile', () => assert.ok(problems({ TURNSTILE_SECRET_KEY: '' }).some(x => x.includes('Turnstile'))));
 test('public launch refuses placeholder admin identity', () => assert.ok(problems({ ADMIN_EMAIL: 'admin@example.example' }).some(x => x.includes('ADMIN_EMAIL'))));
 test('public launch refuses insecure cookie mode', () => assert.ok(problems({ COOKIE_SECURE: 'false' }).some(x => x.includes('COOKIE_SECURE'))));
+test('public launch requires origin-only base URLs', () => {
+  assert.ok(problems({ APP_BASE_URL: 'https://qh8z.test/app' }).some(x => x.includes('APP_BASE_URL')));
+  assert.ok(problems({ PUBLIC_SHORT_BASE_URL: 'https://qh8z.test/s' }).some(x => x.includes('PUBLIC_SHORT_BASE_URL')));
+  assert.ok(problems({ APP_BASE_URL: 'https://user:pass@qh8z.test' }).some(x => x.includes('APP_BASE_URL')));
+  assert.ok(problems({ PUBLIC_SHORT_BASE_URL: 'https://qh8z.test?x=1' }).some(x => x.includes('PUBLIC_SHORT_BASE_URL')));
+});
+test('public launch rejects malformed numeric values instead of accepting prefixes', () => {
+  assert.ok(problems({ PORT: '3000oops' }).some(x => x.includes('PORT')));
+  assert.ok(problems({ SMTP_PORT: '587tls' }).some(x => x.includes('SMTP_PORT')));
+  assert.ok(problems({ SESSION_TTL_DAYS: '30days' }).some(x => x.includes('SESSION_TTL_DAYS')));
+  assert.ok(problems({ REPUTATION_WORKER_MINUTES: '15m' }).some(x => x.includes('REPUTATION_WORKER_MINUTES')));
+});
 test('public launch rejects invalid user and admin session lifetimes', () => {
   assert.ok(problems({ SESSION_TTL_DAYS: '0' }).some(x => x.includes('SESSION_TTL_DAYS')));
   assert.ok(problems({ ADMIN_SESSION_HOURS: '48' }).some(x => x.includes('ADMIN_SESSION_HOURS')));
@@ -62,3 +76,7 @@ test('public launch cannot silently disable recurring reputation scanning', () =
   assert.ok(problems({ REPUTATION_WORKER_MINUTES: '0' }).some(x => x.includes('REPUTATION_WORKER_MINUTES')));
 });
 test('public launch rejects unsafe retention bounds', () => assert.ok(problems({ DATA_RETENTION_DAYS: '1' }).some(x => x.includes('DATA_RETENTION_DAYS'))));
+test('public launch rejects malformed contact and legal presentation values', () => {
+  assert.ok(problems({ SUPPORT_EMAIL: 'support@qh8z.test<script>' }).some(x => x.includes('Support and abuse')));
+  assert.ok(problems({ LEGAL_OPERATOR_NAME: '<b>QH8Z</b>' }).some(x => x.includes('plain text')));
+});
