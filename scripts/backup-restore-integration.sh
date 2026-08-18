@@ -55,7 +55,8 @@ backup_path=$(bash scripts/backup.sh /tmp/qh8z-backups)
 
 # backup.sh stops and restarts the app. The stop must drain through the Node
 # lifecycle handler rather than falling back to Docker SIGKILL/abrupt exit.
-docker compose --profile production logs --no-color app | grep -q '"event":"app.shutdown_completed"'
+shutdown_logs=$(docker compose --profile production logs --no-color app)
+grep -q '"event":"app.shutdown_completed"' <<<"$shutdown_logs"
 
 # A successful backup must return the previously running public stack without
 # recreating healthy dependencies or leaving the edge unavailable.
