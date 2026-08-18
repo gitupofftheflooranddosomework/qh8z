@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { pool } from './db.mjs';
 import { config } from './config.mjs';
+import { verifyMfaUser } from './mfa.mjs';
 
 const COOKIE = config.cookieSecure ? '__Host-qh8z_session' : 'qh8z_session';
 
@@ -63,14 +64,21 @@ export function hasSessionCookie(req) {
   return Boolean(cookies[COOKIE]);
 }
 
-export function requireUser(req, res, next) {
-  if (!req.user) return res.status(401).json({ error: 'authentication_required' });
-  next();
+export async function requireUser(req, res, next) {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'authentication_required' });
+    if (req.method === 'DELETE' && req.originalUrl?.split('?')[0] === '/api/account' && req.user.mfa_enabled_at) {
+      const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id]);
+      if (!rows[0] || !(await verifyMfaUser(rows[0], req.body?.mfaCode, false))) return res.status(401).json({ error: 'invalid_mfa_code', message: 'An authenticator or recovery code is required to delete this account.' });
+    }
+    next();
+  } catch (error) { next(error); }
 }
 
 export function requireActiveUser(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'authentication_required' });
   if (req.user.suspended_at) return res.status(403).json({ error: 'account_suspended', message: 'This account is suspended. Contact QH8Z support if you believe this is a mistake.' });
+  if (config.publicLaunchMode && req.user.is_admin && req.originalUrl?.split('?')[0] === '/api/account/mfa/disable') return res.status(409).json({ error: 'admin_mfa_required', message: 'Administrator MFA cannot be disabled while public launch mode is active.' });
   next();
 }
 
