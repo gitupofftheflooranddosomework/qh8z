@@ -1,12 +1,13 @@
 import { config } from './config.mjs';
 import { pool, audit } from './db.mjs';
 import { deleteShortUrl } from './shlink.mjs';
-import { assertDestinationAllowed } from './destination.mjs';
+import { assertDestinationAllowed, assertResolvedDestinationAllowed } from './destination.mjs';
 import { reconcileDueLinks } from './consistency.mjs';
 
 const THREAT_TYPES = ['MALWARE', 'SOCIAL_ENGINEERING', 'UNWANTED_SOFTWARE'];
 
 export async function checkUrlReputation(url) {
+  if (config.publicLaunchMode) await assertResolvedDestinationAllowed(url);
   if (!config.webRiskApiKey) {
     if (config.webRiskRequired) {
       const error = new Error('URL reputation checking is required but WEB_RISK_API_KEY is not configured');
