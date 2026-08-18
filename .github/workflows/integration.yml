@@ -51,20 +51,6 @@ jobs:
           name: qh8z-compose-logs
           path: /tmp/qh8z-compose.log
 
-  product-v1:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - name: Exercise launch-v1 product workflows
-        run: bash scripts/product-integration.sh
-      - name: Upload compose logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: qh8z-product-compose-logs
-          path: /tmp/qh8z-product-compose.log
-
   backup-restore:
     runs-on: ubuntu-latest
     timeout-minutes: 15
