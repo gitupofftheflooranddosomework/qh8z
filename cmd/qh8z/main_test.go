@@ -110,7 +110,7 @@ func TestRegistrationVerificationOwnedLinksAndAPIKeys(t *testing.T) {
 		t.Fatalf("create status = %d, body = %s", createRec.Code, createRec.Body.String())
 	}
 
-	redirectReq := httptest.NewRequest(http.MethodGet, "/launch-test", nil)
+	redirectReq := httptest.NewRequest(http.MethodGet, "https://qh8z.test/launch-test", nil)
 	redirectReq.Header.Set("Referer", "https://ref.example/")
 	redirectReq.Header.Set("User-Agent", "qh8z-test")
 	redirectRec := httptest.NewRecorder()
@@ -213,7 +213,7 @@ func TestUnverifiedEmailCannotCreateLinks(t *testing.T) {
 	}
 }
 
-func TestProductionRequiresPostgresAndSMTP(t *testing.T) {
+func TestProductionRequiresPostgresSMTPAndBilling(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	t.Setenv("QH8Z_STORAGE", "memory")
 	if _, err := openStore(context.Background(), logger, "production"); err == nil {
@@ -222,6 +222,10 @@ func TestProductionRequiresPostgresAndSMTP(t *testing.T) {
 	t.Setenv("QH8Z_EMAIL_MODE", "log")
 	if _, err := openMailer(logger, "production"); err == nil {
 		t.Fatal("expected production log email to be rejected")
+	}
+	t.Setenv("QH8Z_BILLING_MODE", "disabled")
+	if err := configureBilling("production"); err == nil {
+		t.Fatal("expected production disabled billing to be rejected")
 	}
 }
 
