@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applySubscription, cancelSubscriptionsForCustomer, createCheckout } from '../src/billing.mjs';
+import { applySubscription, cancelSubscriptionsForCustomer, checkoutIdempotencyKey, createCheckout } from '../src/billing.mjs';
 
 test('subscription events for deleted users are committed as orphan audits without FK actors', async () => {
   const calls = [];
@@ -55,6 +55,16 @@ test('already-Pro accounts cannot create another checkout subscription', async (
     createCheckout({ id: 'user-1', plan: 'pro', email: 'user@example.com' }),
     error => error?.status === 409 && error?.code === 'already_pro'
   );
+});
+
+test('checkout creation uses a stable per-user ten-minute idempotency bucket', () => {
+  const a = checkoutIdempotencyKey('user-1', 1_000_000);
+  const b = checkoutIdempotencyKey('user-1', 1_000_000 + 5 * 60_000);
+  const c = checkoutIdempotencyKey('user-1', 1_000_000 + 11 * 60_000);
+  const other = checkoutIdempotencyKey('user-2', 1_000_000);
+  assert.equal(a, b);
+  assert.notEqual(a, c);
+  assert.notEqual(a, other);
 });
 
 test('account billing cancellation auto-paginates and skips terminal subscriptions', async () => {
