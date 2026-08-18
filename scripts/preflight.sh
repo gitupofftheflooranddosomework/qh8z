@@ -73,6 +73,22 @@ if ! valid_email "$admin_email" || [[ "$admin_email" == *.example || "$admin_ema
 valid_email "$support_email" || { echo "FAIL: SUPPORT_EMAIL must be a valid address" >&2; fail=1; }
 valid_email "$abuse_email" || { echo "FAIL: ABUSE_EMAIL must be a valid address" >&2; fail=1; }
 
+mail_from=$(value MAIL_FROM)
+mail_addr=$(printf '%s' "$mail_from" | sed -n 's/.*<\([^<>]*\)>.*/\1/p')
+[[ -n "$mail_addr" ]] || mail_addr="$mail_from"
+valid_email "$mail_addr" || { echo "FAIL: MAIL_FROM must contain a valid sender email address" >&2; fail=1; }
+
+smtp_user=$(value SMTP_USER)
+smtp_pass=$(value SMTP_PASS)
+if [[ ( -n "$smtp_user" && -z "$smtp_pass" ) || ( -z "$smtp_user" && -n "$smtp_pass" ) ]]; then
+  echo "FAIL: SMTP_USER and SMTP_PASS must be configured together or both blank" >&2
+  fail=1
+fi
+if [[ "$smtp_user" == *replace-me* || "$smtp_user" == *replace-with* || "$smtp_user" == *change-me* || "$smtp_pass" == *replace-me* || "$smtp_pass" == *replace-with* || "$smtp_pass" == *change-me* ]]; then
+  echo "FAIL: SMTP credentials must not contain template placeholder values" >&2
+  fail=1
+fi
+
 legal_operator=$(value LEGAL_OPERATOR_NAME)
 legal_jurisdiction=$(value LEGAL_JURISDICTION)
 if [[ "$legal_operator" == *'<'* || "$legal_operator" == *'>'* || "$legal_jurisdiction" == *'<'* || "$legal_jurisdiction" == *'>'* ]]; then
