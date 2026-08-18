@@ -39,3 +39,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS workspace_billing_customer_idx
 CREATE UNIQUE INDEX IF NOT EXISTS workspace_billing_subscription_idx
     ON workspace_billing (provider_subscription_id)
     WHERE provider_subscription_id <> '';
+
+CREATE TABLE IF NOT EXISTS billing_webhook_events (
+    event_id TEXT PRIMARY KEY,
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
