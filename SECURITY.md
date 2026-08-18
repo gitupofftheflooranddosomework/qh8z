@@ -1,23 +1,32 @@
 # QH8Z Security
 
-Please do not publish exploit details or active malicious QH8Z links in a public issue.
+Please do not publish exploit details, credentials, private user data, or active malicious QH8Z links in a public issue.
 
-For the private beta, security and abuse reports should be sent to **support@qh8z.com** or through `/report` for harmful short links.
+## Reporting a vulnerability
+
+Use `security@qh8z.com` for security vulnerabilities. Harmful short links should be reported through `https://qh8z.com/report` or `abuse@qh8z.com`.
+
+QH8Z publishes a security contact document at `https://qh8z.com/.well-known/security.txt`.
 
 ## Security posture
 
-- Anonymous link creation is not supported by the application API.
-- Link creation is tied to authenticated QH8Z accounts.
-- Session tokens are random, stored server-side only as SHA-256 hashes, and delivered in HttpOnly SameSite cookies; production cookies are Secure.
-- Passwords are hashed with bcrypt.
-- Shlink's API key is server-side only and is never exposed to the browser.
-- New and edited destinations pass through Google Web Risk when configured; production is intended to run with fail-closed reputation checking.
-- Mutating browser requests are protected by same-origin checks and rate limits.
-- The configured administrator email is reserved and requires a separate bootstrap secret for first registration.
-- Abuse reports and admin actions are recorded in the QH8Z database/audit trail.
-- Production traffic terminates TLS at Caddy; short-code redirects are routed directly to Shlink.
-- The app and Shlink development ports bind to loopback rather than all interfaces.
+- Public link creation requires an authenticated, non-suspended account with current Terms acceptance and, in public mode, a verified email.
+- Passwords are bcrypt-hashed; session and auth/recovery tokens are random and only hashes are persisted.
+- Production uses Secure HttpOnly `__Host-` session cookies and same-origin enforcement for cookie-authenticated mutations.
+- Cloudflare Turnstile is server-validated for public signup/login/recovery/abuse forms in public mode.
+- Google Web Risk checks link destinations at creation and edit time; public mode fails closed if reputation checking is unavailable.
+- Active destinations are rechecked periodically and are automatically disabled if they later become unsafe or violate destination-network policy.
+- QH8Z rejects loopback/private/reserved literal-network destinations and self-shortening targets.
+- Shlink's API key and PostgreSQL are server-side only. Stored redirect analytics are configured to anonymize visitor IP addresses.
+- Public app/redirect traffic terminates at Caddy; product and redirect services are not directly exposed to the public network.
+- Reserved product routes cannot be claimed as custom short-link aliases.
+- Administrator bootstrap is host-only and requires a separate one-time secret. Public administrators must enroll TOTP MFA before readiness becomes healthy.
+- MFA secrets are encrypted at rest with a separate key; recovery codes are stored only as hashes.
+- User suspension revokes sessions and disables active links.
+- Abuse/moderation and significant account actions are recorded in an audit trail.
+- Stripe webhook events are processed idempotently when billing is enabled.
+- `/healthz` is a liveness endpoint; `/readyz` verifies critical dependencies/configuration and administrator MFA in public mode.
 
-## Before broad public launch
+## Operations
 
-Operate a monitored security/abuse mailbox, retain and test off-host backups, add uptime/error monitoring and alerting, define log retention, and complete jurisdiction-specific legal/privacy review. Rotate the admin bootstrap secret after the administrator account has been created.
+Production readiness additionally depends on maintained dependencies, TLS, monitored security/abuse mailboxes, off-host tested backups, observability/alerting, secret rotation, and an incident-response process. See `docs/LAUNCH.md`.
