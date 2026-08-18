@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applySubscription, cancelSubscriptionsForCustomer, checkoutIdempotencyKey, createCheckout } from '../src/billing.mjs';
+import { applySubscription, cancelSubscriptionsForCustomer, checkoutIdempotencyKey, createCheckout, createPortal } from '../src/billing.mjs';
 
 test('subscription events for deleted users are committed as orphan audits without FK actors', async () => {
   const calls = [];
@@ -54,6 +54,17 @@ test('already-Pro accounts cannot create another checkout subscription', async (
   await assert.rejects(
     createCheckout({ id: 'user-1', plan: 'pro', email: 'user@example.com' }),
     error => error?.status === 409 && error?.code === 'already_pro'
+  );
+});
+
+test('unconfigured billing returns controlled service errors', async () => {
+  await assert.rejects(
+    createCheckout({ id: 'user-1', plan: 'free', email: 'user@example.com' }),
+    error => error?.status === 503 && error?.code === 'billing_unavailable'
+  );
+  await assert.rejects(
+    createPortal({ id: 'user-1', plan: 'free', email: 'user@example.com' }),
+    error => error?.status === 503 && error?.code === 'billing_unavailable'
   );
 });
 
