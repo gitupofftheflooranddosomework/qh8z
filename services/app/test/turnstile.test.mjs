@@ -26,3 +26,19 @@ test('rejects hostname mismatch in production', async () => {
   globalThis.fetch = async () => new Response(JSON.stringify({ success: true, action: 'signup', hostname: 'attacker.test' }), { status: 200, headers: { 'content-type': 'application/json' } });
   await assert.rejects(() => verifyTurnstile('token', 'signup', '203.0.113.10'), /Human verification failed/);
 });
+
+test('treats invalid JSON from Turnstile as provider unavailability, not an internal error', async () => {
+  globalThis.fetch = async () => new Response('not-json', { status: 200, headers: { 'content-type': 'application/json' } });
+  await assert.rejects(
+    verifyTurnstile('token', 'signup', '203.0.113.10'),
+    error => error?.status === 503 && /temporarily unavailable/i.test(error.message)
+  );
+});
+
+test('treats malformed JSON values from Turnstile as provider unavailability', async () => {
+  globalThis.fetch = async () => new Response('null', { status: 200, headers: { 'content-type': 'application/json' } });
+  await assert.rejects(
+    verifyTurnstile('token', 'signup', '203.0.113.10'),
+    error => error?.status === 503 && /temporarily unavailable/i.test(error.message)
+  );
+});
