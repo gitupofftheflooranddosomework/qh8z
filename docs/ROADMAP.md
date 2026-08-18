@@ -61,11 +61,11 @@
 
 ## Milestone 7 — abuse resistance and launch readiness
 
-- [ ] Per-IP, account, and API-key rate limits
-- [ ] URL reputation / malware checks
-- [ ] Blocklists and allowlists
-- [ ] Abuse reporting workflow
-- [ ] Suspension and review tooling
+- [x] Per-IP, account, and API-key rate limits
+- [x] URL reputation / malware checks
+- [x] Blocklists and allowlists
+- [x] Abuse reporting workflow
+- [x] Suspension and review tooling
 - [ ] Terms, privacy, and acceptable-use policies
 - [ ] Observability and incident runbooks
 - [ ] Load testing

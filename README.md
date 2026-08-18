@@ -16,13 +16,16 @@ The qh8z production core now includes:
 - workspace-owned links and analytics authorization
 - scoped API keys whose plaintext secrets are never stored
 - durable audit log
+- distributed per-IP/user/API-key rate limits
+- Google Web Risk reputation checks for new destinations
+- managed allow/block rules, abuse reports, and link suspension tooling
 - secure session cookies and hashed session/verification secrets
 - readiness/liveness endpoints
 - structured JSON logging and graceful shutdown
 - production guards that refuse in-memory storage or log-only email
 - Docker, Compose, and PostgreSQL-backed GitHub Actions CI
 
-> **Launch status:** durable data and identity/ownership are implemented. Abuse controls, full link management/custom domains, richer analytics, billing, production deployment/monitoring, legal policies, and final security/load testing remain launch blockers tracked in GitHub Issue #3.
+> **Launch status:** durable data, identity/ownership, and the public-service safety gate are implemented. Full link management/custom domains, richer analytics, billing, production deployment/monitoring, legal policies, and final security/load testing remain launch blockers tracked in GitHub Issue #3.
 
 ## Run locally with PostgreSQL
 
@@ -97,6 +100,7 @@ http://localhost:8080/example
 ## Operations and architecture
 
 - [`docs/IDENTITY.md`](docs/IDENTITY.md) — accounts, workspaces, verification, API keys, and audit behavior.
+- [`docs/SAFETY.md`](docs/SAFETY.md) — rate limits, Web Risk, destination validation, abuse reports, and admin safety controls.
 - [`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md) — PostgreSQL backup and recovery procedure.
 - [`docs/CACHING.md`](docs/CACHING.md) — Redis-compatible redirect caching strategy.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — product/launch roadmap.
