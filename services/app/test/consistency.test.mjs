@@ -13,7 +13,7 @@ test('tracked link comparison detects destination divergence and malformed upstr
   assert.equal(trackedLinkMatches({ long_url: 'https://example.com/one' }, null), false);
 });
 
-test('tracked link comparison covers the full redirect contract', () => {
+test('tracked link comparison covers the full Shlink redirect contract', () => {
   const link = {
     long_url: 'https://example.com/campaign',
     title: 'Campaign',
@@ -25,13 +25,17 @@ test('tracked link comparison covers the full redirect contract', () => {
     longUrl: 'https://example.com/campaign',
     title: 'Campaign',
     tags: ['paid', 'launch'],
-    validUntil: '2027-01-01T00:00:00Z',
-    maxVisits: 500,
+    meta: { validUntil: '2027-01-01T00:00:00Z', maxVisits: 500 },
   };
 
   assert.equal(trackedLinkMatches(link, upstream), true);
   assert.equal(trackedLinkMatches(link, { ...upstream, title: 'Changed' }), false);
   assert.equal(trackedLinkMatches(link, { ...upstream, tags: ['launch'] }), false);
-  assert.equal(trackedLinkMatches(link, { ...upstream, validUntil: null }), false);
-  assert.equal(trackedLinkMatches(link, { ...upstream, maxVisits: null }), false);
+  assert.equal(trackedLinkMatches(link, { ...upstream, meta: { ...upstream.meta, validUntil: null } }), false);
+  assert.equal(trackedLinkMatches(link, { ...upstream, meta: { ...upstream.meta, maxVisits: null } }), false);
+});
+
+test('tracked link comparison tolerates legacy/root control fields', () => {
+  const link = { long_url: 'https://example.com', expires_at: null, max_visits: 10 };
+  assert.equal(trackedLinkMatches(link, { longUrl: 'https://example.com', maxVisits: 10 }), true);
 });
