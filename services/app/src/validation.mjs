@@ -4,6 +4,13 @@ export const RESERVED_SLUGS = new Set([
   'robots.txt', 'www', 'status', 'support', 'abuse', 'rest'
 ]);
 
+function clientError(message, code = 'invalid_input') {
+  const error = new Error(message);
+  error.status = 400;
+  error.code = code;
+  return error;
+}
+
 export function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -19,18 +26,20 @@ export function validPassword(value) {
 
 export function normalizeHttpUrl(value) {
   const raw = String(value || '').trim();
-  if (!raw || raw.length > 8192) throw new Error('Destination URLs must be between 1 and 8192 characters');
-  const parsed = new URL(raw);
-  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Only http and https URLs are allowed');
-  if (parsed.username || parsed.password) throw new Error('URLs containing embedded credentials are not allowed');
+  if (!raw || raw.length > 8192) throw clientError('Destination URLs must be between 1 and 8192 characters', 'invalid_destination');
+  let parsed;
+  try { parsed = new URL(raw); }
+  catch { throw clientError('Destination must be a valid absolute URL', 'invalid_destination'); }
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw clientError('Only http and https URLs are allowed', 'invalid_destination');
+  if (parsed.username || parsed.password) throw clientError('URLs containing embedded credentials are not allowed', 'invalid_destination');
   return parsed.toString();
 }
 
 export function normalizeSlug(value) {
   if (value == null || String(value).trim() === '') return null;
   const slug = String(value).trim();
-  if (!/^[A-Za-z0-9_-]{3,64}$/.test(slug)) throw new Error('Custom aliases must be 3-64 characters using letters, numbers, hyphens, or underscores');
-  if (RESERVED_SLUGS.has(slug.toLowerCase())) throw new Error('That alias is reserved by QH8Z');
+  if (!/^[A-Za-z0-9_-]{3,64}$/.test(slug)) throw clientError('Custom aliases must be 3-64 characters using letters, numbers, hyphens, or underscores', 'invalid_alias');
+  if (RESERVED_SLUGS.has(slug.toLowerCase())) throw clientError('That alias is reserved by QH8Z', 'reserved_alias');
   return slug;
 }
 
