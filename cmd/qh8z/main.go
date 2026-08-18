@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gitupofftheflooranddosomework/qh8z/internal/dnsverify"
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/mailer"
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/reputation"
 	"github.com/gitupofftheflooranddosomework/qh8z/internal/storage"
@@ -23,6 +24,7 @@ type app struct {
 	store         storage.Store
 	mailer        mailer.Mailer
 	reputation    reputation.Checker
+	dnsVerifier   dnsverify.Verifier
 	safety        safetyConfig
 	baseURL       string
 	logger        *slog.Logger
@@ -58,6 +60,7 @@ func main() {
 		store:         store,
 		mailer:        email,
 		reputation:    checker,
+		dnsVerifier:   dnsverify.System{},
 		safety:        safety,
 		baseURL:       baseURL,
 		logger:        logger,
@@ -160,9 +163,21 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/admin/links/{slug}/suspend", a.suspendLink)
 	mux.HandleFunc("POST /api/v1/admin/links/{slug}/unsuspend", a.unsuspendLink)
 
+	mux.HandleFunc("GET /api/v1/plans", a.listPlans)
+	mux.HandleFunc("GET /api/v1/usage", a.usage)
+	mux.HandleFunc("GET /api/v1/analytics", a.analyticsDashboard)
+	mux.HandleFunc("GET /api/v1/domains", a.listCustomDomains)
+	mux.HandleFunc("POST /api/v1/domains", a.createCustomDomain)
+	mux.HandleFunc("POST /api/v1/domains/{id}/verify", a.verifyCustomDomain)
+	mux.HandleFunc("DELETE /api/v1/domains/{id}", a.deleteCustomDomain)
+
+	mux.HandleFunc("GET /api/v1/links", a.listLinks)
 	mux.HandleFunc("POST /api/v1/links", a.createLink)
 	mux.HandleFunc("GET /api/v1/links/{slug}", a.getLink)
+	mux.HandleFunc("PATCH /api/v1/links/{slug}", a.updateLink)
+	mux.HandleFunc("DELETE /api/v1/links/{slug}", a.deleteLink)
 	mux.HandleFunc("GET /api/v1/links/{slug}/stats", a.linkStats)
+	mux.HandleFunc("GET /api/v1/links/{slug}/qr.png", a.linkQRCode)
 	mux.HandleFunc("GET /{slug}", a.redirect)
 	mux.HandleFunc("GET /", a.home)
 	return a.apiRateLimit(mux)
