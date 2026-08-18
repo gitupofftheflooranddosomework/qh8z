@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  applySubscription, cancelSubscriptionsForCustomer, checkoutIdempotencyKey, createCheckout, createPortal,
+  applySubscription, cancelBillingForUser, cancelSubscriptionsForCustomer, checkoutIdempotencyKey, createCheckout, createPortal,
   subscriptionPriceIds, subscriptionQualifiesForPro,
 } from '../src/billing.mjs';
 
@@ -148,6 +148,14 @@ test('unconfigured billing returns controlled service errors', async () => {
   );
   await assert.rejects(
     createPortal({ id: 'user-1', plan: 'free', email: 'user@example.com' }),
+    error => error?.status === 503 && error?.code === 'billing_unavailable'
+  );
+});
+
+test('billed account deletion fails closed if Stripe is unavailable', async () => {
+  assert.equal(await cancelBillingForUser({ id: 'user-1', stripe_customer_id: null }), 0);
+  await assert.rejects(
+    cancelBillingForUser({ id: 'user-1', stripe_customer_id: 'cus_1' }),
     error => error?.status === 503 && error?.code === 'billing_unavailable'
   );
 });
