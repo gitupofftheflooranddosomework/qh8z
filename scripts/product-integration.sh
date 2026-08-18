@@ -73,6 +73,15 @@ assert d['hasMore'] is False
 assert d['links'][0]['short_code']=='product-advanced'
 PY
 
+# Malformed pagination is normalized instead of surfacing a PostgreSQL OFFSET error.
+curl -fsS -b "$USER_JAR" 'http://localhost:3000/api/links?limit=Infinity&offset=1.5' >/tmp/qh8z-product-pagination.json
+python3 - <<'PY'
+import json
+with open('/tmp/qh8z-product-pagination.json') as f: d=json.load(f)
+assert d['limit']==25
+assert d['offset']==0
+PY
+
 # Archive is organizational only: redirect stays live. Unarchive returns it to active view.
 curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -X POST "http://localhost:3000/api/links/${advanced_id}/archive" >/tmp/qh8z-product-archive.json
 curl -fsS -b "$USER_JAR" 'http://localhost:3000/api/links?status=archived&q=product-advanced' | grep -q 'product-advanced'
@@ -85,7 +94,26 @@ curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -X DELETE "http://localhost:3000/a
 curl -fsS -b "$USER_JAR" 'http://localhost:3000/api/links?status=disabled&q=product-advanced' | grep -q 'product-advanced'
 disabled_redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/product-advanced || true)
 [[ "$disabled_redirect" != "https://example.com/advanced" ]]
+# Details remains usable while the redirect is intentionally absent from Shlink.
+curl -fsS -b "$USER_JAR" "http://localhost:3000/api/links/${advanced_id}/stats" >/tmp/qh8z-product-disabled-stats.json
+curl -fsS -b "$USER_JAR" "http://localhost:3000/api/links/${advanced_id}/visits?itemsPerPage=50" >/tmp/qh8z-product-disabled-visits.json
+python3 - <<'PY'
+import json
+with open('/tmp/qh8z-product-disabled-stats.json') as f: stats=json.load(f)
+with open('/tmp/qh8z-product-disabled-visits.json') as f: visits=json.load(f)
+assert stats['unavailable'] is True
+assert stats['visits']['total']==0
+assert visits['visits']['data']==[]
+assert visits['visits']['pagination']['totalItems']==0
+PY
 curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -X POST "http://localhost:3000/api/links/${advanced_id}/restore" >/tmp/qh8z-product-restored.json
+redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/product-advanced)
+[[ "$redirect" == "https://example.com/advanced" ]]
+
+# Repeat the cycle immediately. Successful restore must finalize its create
+# intent transactionally and never require a janitor/background delay.
+curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -X DELETE "http://localhost:3000/api/links/${advanced_id}" >/dev/null
+curl -fsS -b "$USER_JAR" -H "Origin: $ORIGIN" -X POST "http://localhost:3000/api/links/${advanced_id}/restore" >/dev/null
 redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/product-advanced)
 [[ "$redirect" == "https://example.com/advanced" ]]
 
