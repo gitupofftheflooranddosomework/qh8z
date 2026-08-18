@@ -15,5 +15,7 @@ grep -qi '^strict-transport-security:' "$headers"
 grep -qi '^x-content-type-options: nosniff' "$headers"
 code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/links")
 [[ "$code" == "401" ]]
+upstream_code=$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/rest/health")
+[[ "$upstream_code" == "404" ]]
 
 echo "QH8Z post-deploy public checks passed for $BASE"
