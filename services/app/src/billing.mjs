@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 import { config } from './config.mjs';
-import { pool, audit } from './db.mjs';
+import { pool } from './db.mjs';
 
 const stripe = config.stripeSecretKey ? new Stripe(config.stripeSecretKey) : null;
 
@@ -32,35 +32,52 @@ function proStatus(status) {
   return ['active', 'trialing', 'past_due'].includes(status);
 }
 
-async function applySubscription(subscription) {
+async function auditBilling(client, actorUserId, eventType, targetId = null, metadata = {}) {
+  await client.query(
+    'INSERT INTO audit_events(actor_user_id,event_type,target_id,metadata) VALUES($1,$2,$3,$4)',
+    [actorUserId, eventType, targetId, JSON.stringify(metadata)]
+  );
+}
+
+async function applySubscription(client, subscription) {
   const userId = subscription.metadata?.user_id;
   if (!userId) return;
   const plan = proStatus(subscription.status) ? 'pro' : 'free';
-  await pool.query('UPDATE users SET plan=$1,stripe_customer_id=COALESCE($2,stripe_customer_id) WHERE id=$3', [plan, subscription.customer || null, userId]);
-  await audit(userId, plan === 'pro' ? 'billing.pro_active' : 'billing.pro_inactive', userId, { subscriptionId: subscription.id, status: subscription.status });
+  await client.query('UPDATE users SET plan=$1,stripe_customer_id=COALESCE($2,stripe_customer_id) WHERE id=$3', [plan, subscription.customer || null, userId]);
+  await auditBilling(client, userId, plan === 'pro' ? 'billing.pro_active' : 'billing.pro_inactive', userId, { subscriptionId: subscription.id, status: subscription.status });
 }
 
 export async function handleStripeWebhook(rawBody, signature) {
   if (!stripe || !config.stripeWebhookSecret) throw new Error('Stripe webhook is not configured');
   const event = stripe.webhooks.constructEvent(rawBody, signature, config.stripeWebhookSecret);
-  const inserted = await pool.query(
-    'INSERT INTO stripe_events(event_id,event_type) VALUES($1,$2) ON CONFLICT (event_id) DO NOTHING RETURNING event_id',
-    [event.id, event.type]
-  );
-  if (!inserted.rows[0]) return `${event.type}:duplicate`;
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
+    const inserted = await client.query(
+      'INSERT INTO stripe_events(event_id,event_type) VALUES($1,$2) ON CONFLICT (event_id) DO NOTHING RETURNING event_id',
+      [event.id, event.type]
+    );
+    if (!inserted.rows[0]) {
+      await client.query('COMMIT');
+      return `${event.type}:duplicate`;
+    }
+
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
       const userId = session.metadata?.user_id;
-      if (userId && session.customer) await pool.query('UPDATE users SET stripe_customer_id=$1 WHERE id=$2', [session.customer, userId]);
+      if (userId && session.customer) await client.query('UPDATE users SET stripe_customer_id=$1 WHERE id=$2', [session.customer, userId]);
     }
     if (['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted'].includes(event.type)) {
-      await applySubscription(event.data.object);
+      await applySubscription(client, event.data.object);
     }
+
+    await client.query('COMMIT');
     return event.type;
   } catch (error) {
-    await pool.query('DELETE FROM stripe_events WHERE event_id=$1', [event.id]);
+    try { await client.query('ROLLBACK'); } catch {}
     throw error;
+  } finally {
+    client.release();
   }
 }
 
