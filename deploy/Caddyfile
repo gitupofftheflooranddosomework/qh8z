@@ -7,6 +7,10 @@
 
 {$QH8Z_DOMAIN} {
 	encode zstd gzip
+	log {
+		output stdout
+		format json
+	}
 
 	@private path /metrics /internal/* /readyz
 	respond @private 404
@@ -23,6 +27,10 @@ https:// {
 		on_demand
 	}
 	encode zstd gzip
+	log {
+		output stdout
+		format json
+	}
 
 	@private path /metrics /internal/* /readyz
 	respond @private 404
