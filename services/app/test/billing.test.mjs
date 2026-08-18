@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applySubscription, createCheckout } from '../src/billing.mjs';
+import { applySubscription, cancelSubscriptionsForCustomer, createCheckout } from '../src/billing.mjs';
 
 test('subscription events for deleted users are committed as orphan audits without FK actors', async () => {
   const calls = [];
@@ -55,4 +55,31 @@ test('already-Pro accounts cannot create another checkout subscription', async (
     createCheckout({ id: 'user-1', plan: 'pro', email: 'user@example.com' }),
     error => error?.status === 409 && error?.code === 'already_pro'
   );
+});
+
+test('account billing cancellation auto-paginates and skips terminal subscriptions', async () => {
+  const canceled = [];
+  const subscriptions = [
+    { id: 'sub_active_1', status: 'active' },
+    { id: 'sub_canceled', status: 'canceled' },
+    { id: 'sub_expired', status: 'incomplete_expired' },
+    { id: 'sub_active_2', status: 'past_due' },
+  ];
+  const stripeClient = {
+    subscriptions: {
+      list(params) {
+        assert.deepEqual(params, { customer: 'cus_1', status: 'all', limit: 100 });
+        return {
+          async *[Symbol.asyncIterator]() {
+            for (const subscription of subscriptions) yield subscription;
+          }
+        };
+      },
+      async cancel(id) { canceled.push(id); },
+    }
+  };
+
+  const count = await cancelSubscriptionsForCustomer(stripeClient, 'cus_1');
+  assert.equal(count, 2);
+  assert.deepEqual(canceled, ['sub_active_1', 'sub_active_2']);
 });
