@@ -11,6 +11,13 @@ export function billingEnabled() {
   return Boolean(stripe && config.stripeWebhookSecret && config.stripeProPriceId);
 }
 
+function billingError(message, status, code) {
+  const error = new Error(message);
+  error.status = status;
+  error.code = code;
+  return error;
+}
+
 export function checkoutIdempotencyKey(userId, now = Date.now()) {
   const bucket = Math.floor(Number(now) / (10 * 60_000));
   return `qh8z-checkout:${String(userId)}:${bucket}`;
@@ -18,12 +25,9 @@ export function checkoutIdempotencyKey(userId, now = Date.now()) {
 
 export async function createCheckout(user) {
   if (user?.plan === 'pro') {
-    const error = new Error('This account already has Pro access. Use the billing portal to manage the subscription.');
-    error.status = 409;
-    error.code = 'already_pro';
-    throw error;
+    throw billingError('This account already has Pro access. Use the billing portal to manage the subscription.', 409, 'already_pro');
   }
-  if (!billingEnabled()) throw new Error('Billing is not configured');
+  if (!billingEnabled()) throw billingError('Billing is temporarily unavailable.', 503, 'billing_unavailable');
   return stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: user.stripe_customer_id || undefined,
@@ -38,7 +42,8 @@ export async function createCheckout(user) {
 }
 
 export async function createPortal(user) {
-  if (!stripe || !user.stripe_customer_id) throw new Error('No Stripe customer is attached to this account');
+  if (!billingEnabled()) throw billingError('Billing is temporarily unavailable.', 503, 'billing_unavailable');
+  if (!user?.stripe_customer_id) throw billingError('No billing profile exists for this account yet.', 409, 'billing_profile_missing');
   return stripe.billingPortal.sessions.create({ customer: user.stripe_customer_id, return_url: `${config.appBaseUrl}/app` });
 }
 
