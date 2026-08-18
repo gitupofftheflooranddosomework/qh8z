@@ -58,6 +58,22 @@ export async function migrate() {
     CREATE INDEX IF NOT EXISTS auth_tokens_user_purpose_idx ON auth_tokens(user_id,purpose,created_at DESC);
     CREATE INDEX IF NOT EXISTS auth_tokens_expiry_idx ON auth_tokens(expires_at);
 
+    CREATE OR REPLACE FUNCTION qh8z_revoke_tokens_after_user_update() RETURNS TRIGGER AS $$
+    BEGIN
+      IF OLD.password_hash IS DISTINCT FROM NEW.password_hash THEN
+        DELETE FROM auth_tokens WHERE user_id=NEW.id AND purpose='reset_password';
+      END IF;
+      IF OLD.email_verified_at IS DISTINCT FROM NEW.email_verified_at AND NEW.email_verified_at IS NOT NULL THEN
+        DELETE FROM auth_tokens WHERE user_id=NEW.id AND purpose='verify_email';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+    DROP TRIGGER IF EXISTS qh8z_revoke_tokens_after_user_update_trigger ON users;
+    CREATE TRIGGER qh8z_revoke_tokens_after_user_update_trigger
+      AFTER UPDATE OF password_hash,email_verified_at ON users
+      FOR EACH ROW EXECUTE FUNCTION qh8z_revoke_tokens_after_user_update();
+
     CREATE TABLE IF NOT EXISTS links (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
