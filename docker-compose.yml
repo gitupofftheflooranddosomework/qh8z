@@ -40,7 +40,7 @@ services:
     ports:
       - "127.0.0.1:${SHLINK_DEV_PORT:-8080}:8080"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/rest/health || exit 1"]
+      test: ["CMD-SHELL", "php -r 'exit(@fsockopen(\"127.0.0.1\", 8080) ? 0 : 1);'"]
       interval: 5s
       timeout: 5s
       retries: 30
