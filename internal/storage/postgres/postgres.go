@@ -71,57 +71,92 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 	sort.Strings(names)
 
 	for _, name := range names {
-		version := name
 		var applied bool
-		if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, version).Scan(&applied); err != nil {
-			return fmt.Errorf("check migration %s: %w", version, err)
+		if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, name).Scan(&applied); err != nil {
+			return fmt.Errorf("check migration %s: %w", name, err)
 		}
 		if applied {
 			continue
 		}
 		sqlBytes, err := migrationFiles.ReadFile("migrations/" + name)
 		if err != nil {
-			return fmt.Errorf("read migration %s: %w", version, err)
+			return fmt.Errorf("read migration %s: %w", name, err)
 		}
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
-			return fmt.Errorf("begin migration %s: %w", version, err)
+			return fmt.Errorf("begin migration %s: %w", name, err)
 		}
 		if _, err := tx.ExecContext(ctx, string(sqlBytes)); err != nil {
 			_ = tx.Rollback()
-			return fmt.Errorf("apply migration %s: %w", version, err)
+			return fmt.Errorf("apply migration %s: %w", name, err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version) VALUES ($1)`, version); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version) VALUES ($1)`, name); err != nil {
 			_ = tx.Rollback()
-			return fmt.Errorf("record migration %s: %w", version, err)
+			return fmt.Errorf("record migration %s: %w", name, err)
 		}
 		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit migration %s: %w", version, err)
+			return fmt.Errorf("commit migration %s: %w", name, err)
 		}
 	}
 	return nil
 }
 
 func (s *Store) CreateLink(ctx context.Context, link core.Link) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO links (slug, destination_url, created_at, visit_count) VALUES ($1, $2, $3, $4)`,
-		link.Slug, link.URL, link.CreatedAt, link.Visits,
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO links (slug, destination_url, created_at, visit_count, workspace_id, created_by_user_id)
+VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''))`,
+		link.Slug, link.URL, link.CreatedAt, link.Visits, link.WorkspaceID, link.CreatedByUserID,
 	)
 	if err == nil {
 		return nil
 	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+	if isUniqueViolation(err) {
 		return core.ErrConflict
 	}
 	return fmt.Errorf("create link: %w", err)
 }
 
+func (s *Store) CreateOwnedLink(ctx context.Context, link core.Link, audit core.AuditEntry) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin owned link create: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx, `
+INSERT INTO links (slug, destination_url, created_at, visit_count, workspace_id, created_by_user_id)
+VALUES ($1, $2, $3, $4, $5, $6)`,
+		link.Slug, link.URL, link.CreatedAt, link.Visits, link.WorkspaceID, link.CreatedByUserID,
+	)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return core.ErrConflict
+		}
+		return fmt.Errorf("create owned link: %w", err)
+	}
+	if err := insertAudit(ctx, tx, audit); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit owned link create: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) GetLink(ctx context.Context, slug string) (core.Link, error) {
+	return scanLink(s.db.QueryRowContext(ctx, `
+SELECT slug, destination_url, COALESCE(workspace_id, ''), COALESCE(created_by_user_id, ''), created_at, visit_count
+FROM links WHERE slug = $1`, slug))
+}
+
+func (s *Store) GetWorkspaceLink(ctx context.Context, workspaceID, slug string) (core.Link, error) {
+	return scanLink(s.db.QueryRowContext(ctx, `
+SELECT slug, destination_url, COALESCE(workspace_id, ''), COALESCE(created_by_user_id, ''), created_at, visit_count
+FROM links WHERE slug = $1 AND workspace_id = $2`, slug, workspaceID))
+}
+
+func scanLink(row *sql.Row) (core.Link, error) {
 	var link core.Link
-	err := s.db.QueryRowContext(ctx,
-		`SELECT slug, destination_url, created_at, visit_count FROM links WHERE slug = $1`, slug,
-	).Scan(&link.Slug, &link.URL, &link.CreatedAt, &link.Visits)
+	err := row.Scan(&link.Slug, &link.URL, &link.WorkspaceID, &link.CreatedByUserID, &link.CreatedAt, &link.Visits)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.Link{}, core.ErrNotFound
 	}
@@ -161,6 +196,14 @@ func (s *Store) RecordVisit(ctx context.Context, visit core.Visit) (int64, error
 }
 
 func (s *Store) Stats(ctx context.Context, slug string, recentLimit int) (core.Stats, error) {
+	return s.stats(ctx, slug, "", recentLimit)
+}
+
+func (s *Store) StatsForWorkspace(ctx context.Context, workspaceID, slug string, recentLimit int) (core.Stats, error) {
+	return s.stats(ctx, slug, workspaceID, recentLimit)
+}
+
+func (s *Store) stats(ctx context.Context, slug, workspaceID string, recentLimit int) (core.Stats, error) {
 	if recentLimit < 0 {
 		recentLimit = 0
 	}
@@ -168,7 +211,13 @@ func (s *Store) Stats(ctx context.Context, slug string, recentLimit int) (core.S
 		recentLimit = 100
 	}
 	var stats core.Stats
-	if err := s.db.QueryRowContext(ctx, `SELECT visit_count FROM links WHERE slug = $1`, slug).Scan(&stats.TotalVisits); errors.Is(err, sql.ErrNoRows) {
+	query := `SELECT visit_count FROM links WHERE slug = $1`
+	args := []any{slug}
+	if workspaceID != "" {
+		query += ` AND workspace_id = $2`
+		args = append(args, workspaceID)
+	}
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&stats.TotalVisits); errors.Is(err, sql.ErrNoRows) {
 		return core.Stats{}, core.ErrNotFound
 	} else if err != nil {
 		return core.Stats{}, fmt.Errorf("read visit count: %w", err)
@@ -176,10 +225,13 @@ func (s *Store) Stats(ctx context.Context, slug string, recentLimit int) (core.S
 	if recentLimit == 0 {
 		return stats, nil
 	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT visited_at, referer, user_agent FROM visits WHERE slug = $1 ORDER BY visited_at DESC, id DESC LIMIT $2`,
-		slug, recentLimit,
-	)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT v.visited_at, v.referer, v.user_agent
+FROM visits v
+JOIN links l ON l.slug = v.slug
+WHERE v.slug = $1 AND ($2 = '' OR l.workspace_id = $2)
+ORDER BY v.visited_at DESC, v.id DESC
+LIMIT $3`, slug, workspaceID, recentLimit)
 	if err != nil {
 		return core.Stats{}, fmt.Errorf("read visits: %w", err)
 	}
@@ -196,6 +248,11 @@ func (s *Store) Stats(ctx context.Context, slug string, recentLimit int) (core.S
 		return core.Stats{}, fmt.Errorf("iterate visits: %w", err)
 	}
 	return stats, nil
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
