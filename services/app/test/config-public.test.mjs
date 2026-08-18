@@ -6,6 +6,7 @@ const base = {
   ...process.env,
   NODE_ENV: 'production',
   PUBLIC_LAUNCH_MODE: 'true',
+  QH8Z_DOMAIN: 'qh8z.test',
   APP_BASE_URL: 'https://qh8z.test',
   PUBLIC_SHORT_BASE_URL: 'https://qh8z.test',
   COOKIE_SECURE: 'true',
@@ -59,6 +60,12 @@ test('public launch requires origin-only base URLs', () => {
   assert.ok(problems({ PUBLIC_SHORT_BASE_URL: 'https://qh8z.test/s' }).some(x => x.includes('PUBLIC_SHORT_BASE_URL')));
   assert.ok(problems({ APP_BASE_URL: 'https://user:pass@qh8z.test' }).some(x => x.includes('APP_BASE_URL')));
   assert.ok(problems({ PUBLIC_SHORT_BASE_URL: 'https://qh8z.test?x=1' }).some(x => x.includes('PUBLIC_SHORT_BASE_URL')));
+});
+test('public launch binds generated URLs to the configured Caddy host', () => {
+  assert.ok(problems({ QH8Z_DOMAIN: '' }).some(x => x.includes('QH8Z_DOMAIN')));
+  assert.ok(problems({ QH8Z_DOMAIN: 'qh8z.test/path' }).some(x => x.includes('QH8Z_DOMAIN')));
+  assert.ok(problems({ APP_BASE_URL: 'https://other.test' }).some(x => x.includes('APP_BASE_URL host')));
+  assert.ok(problems({ PUBLIC_SHORT_BASE_URL: 'https://other.test' }).some(x => x.includes('PUBLIC_SHORT_BASE_URL host')));
 });
 test('public launch rejects malformed numeric values instead of accepting prefixes', () => {
   assert.ok(problems({ PORT: '3000oops' }).some(x => x.includes('PORT')));
