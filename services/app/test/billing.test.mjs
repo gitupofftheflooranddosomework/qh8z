@@ -58,10 +58,11 @@ test('already-Pro accounts cannot create another checkout subscription', async (
 });
 
 test('checkout creation uses a stable per-user ten-minute idempotency bucket', () => {
-  const a = checkoutIdempotencyKey('user-1', 1_000_000);
-  const b = checkoutIdempotencyKey('user-1', 1_000_000 + 5 * 60_000);
-  const c = checkoutIdempotencyKey('user-1', 1_000_000 + 11 * 60_000);
-  const other = checkoutIdempotencyKey('user-2', 1_000_000);
+  const bucketStart = 1_200_000;
+  const a = checkoutIdempotencyKey('user-1', bucketStart);
+  const b = checkoutIdempotencyKey('user-1', bucketStart + 5 * 60_000);
+  const c = checkoutIdempotencyKey('user-1', bucketStart + 11 * 60_000);
+  const other = checkoutIdempotencyKey('user-2', bucketStart);
   assert.equal(a, b);
   assert.notEqual(a, c);
   assert.notEqual(a, other);
