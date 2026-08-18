@@ -12,11 +12,15 @@ Point `qh8z.com` and `www.qh8z.com` to the host. Caddy obtains and renews TLS ce
 
 ```bash
 cp .env.production.example .env
-openssl rand -hex 32   # POSTGRES_PASSWORD
+openssl rand -hex 32   # POSTGRES_PASSWORD (maintenance/admin only)
+openssl rand -hex 32   # QH8Z_DB_PASSWORD
+openssl rand -hex 32   # SHLINK_DB_PASSWORD
 openssl rand -hex 32   # SHLINK_API_KEY
 openssl rand -hex 32   # ADMIN_BOOTSTRAP_SECRET (one-time setup)
 openssl rand -hex 32   # MFA_ENCRYPTION_KEY (persistent; back this up securely)
 ```
+
+Use a different value for every secret. `POSTGRES_PASSWORD` belongs only to the PostgreSQL maintenance account. QH8Z connects as `qh8z_app` with `QH8Z_DB_PASSWORD`; Shlink connects as `shlink_app` with `SHLINK_DB_PASSWORD`. The two application roles are not allowed to connect to each other's database.
 
 Fill every required field in `.env`:
 
@@ -27,7 +31,8 @@ Fill every required field in `.env`:
 - real `ADMIN_EMAIL`; a strong `ADMIN_BOOTSTRAP_SECRET` is needed until the first admin exists.
 - real legal operator name/jurisdiction for Terms and Privacy rendering.
 - `TERMS_VERSION` matching the published Terms revision.
-- `ADMIN_SESSION_HOURS` between 1 and 24; the template defaults to 12 hours.
+- `SESSION_TTL_DAYS` between 1 and 90 and `ADMIN_SESSION_HOURS` between 1 and 24; templates default to 30 days and 12 hours respectively.
+- positive recurring reputation-scan settings; public mode refuses settings that silently disable the worker.
 
 Run the non-secret-printing preflight before starting production:
 
@@ -35,7 +40,7 @@ Run the non-secret-printing preflight before starting production:
 bash scripts/preflight.sh .env
 ```
 
-Public mode also performs application-level startup/readiness checks. Missing Web Risk, Turnstile, email verification, secure-cookie/HTTPS settings, SMTP, legal operator metadata, or administrator MFA prevents a healthy public launch.
+Public mode also performs application-level startup/readiness checks. Missing Web Risk, Turnstile, email verification, secure-cookie/HTTPS settings, SMTP, legal operator metadata, valid runtime intervals, or administrator MFA prevents a healthy public launch. Preflight additionally enforces the documented 64-hex-character format for database and Shlink API secrets so connection-string parsing cannot be broken by URL-reserved password characters.
 
 ## 3. Email deliverability
 
@@ -47,10 +52,10 @@ Verification and reset tokens are one-time, stored only as hashes, and placed in
 
 ```bash
 docker compose --env-file .env --profile production pull
-docker compose --env-file .env --profile production up -d --build
+docker compose --env-file .env --profile production up -d --build --remove-orphans
 ```
 
-Check Caddy, app, Shlink, and PostgreSQL logs after startup. `/healthz` is liveness. `/readyz` verifies the database, redirect engine, SMTP, public configuration, and administrator MFA. Shlink's `/rest/*` management surface is blocked at the public Caddy edge.
+Check Caddy, app, Shlink, and PostgreSQL logs after startup. `/healthz` is liveness. `/readyz` verifies the database, redirect engine, SMTP, public configuration, and administrator MFA. Shlink's exact `/rest` path and `/rest/*` management surface are blocked at the public Caddy edge.
 
 ## 5. Bootstrap and lock down the administrator
 
@@ -64,7 +69,7 @@ Then sign in through the normal QH8Z login, enable authenticator-app MFA from **
 
 After bootstrap, remove `ADMIN_BOOTSTRAP_SECRET` from `.env` and restart. The app only requires it when no administrator exists. Keep `MFA_ENCRYPTION_KEY` stable and backed up securely; changing or losing it makes existing encrypted authenticator secrets unusable.
 
-Never expose the bootstrap secret, Shlink API key, MFA encryption key, or database credentials to a browser/client.
+Never expose the bootstrap secret, Shlink API key, MFA encryption key, PostgreSQL administrator credential, or service database credentials to a browser/client.
 
 ## 6. Functional smoke test
 
@@ -73,40 +78,40 @@ Before announcing the site, test from outside the host/network:
 - register a normal account and verify its email;
 - verify unverified accounts cannot create links;
 - create generated and custom-alias links;
-- confirm reserved aliases and private/local-network destinations are rejected;
+- confirm reserved aliases, private/reserved IPs, IPv4-mapped IPv6, single-label hosts, and local/internal hostname suffixes are rejected;
 - verify Google Web Risk fail-closed behavior and Turnstile enforcement;
 - redirect through `https://qh8z.com/<slug>` and confirm visit counts;
 - edit a destination and verify the same short URL changes target;
-- verify `https://qh8z.com/rest/health` returns 404 rather than exposing Shlink management APIs;
+- verify `https://qh8z.com/rest` and `https://qh8z.com/rest/health` return 404 rather than exposing Shlink management APIs;
 - generate/scan a QR code;
 - submit an abuse report and action it from the admin queue;
 - test user suspension and confirm active links stop redirecting;
 - test forgot/reset-password and session invalidation;
 - test administrator MFA login and a recovery code;
-- verify an MFA-protected account cannot be deleted with only a password;
+- verify MFA-protected password changes and account deletion require second-factor proof;
 - test account export/deletion;
 - validate `/security`, `/.well-known/security.txt`, Terms, Privacy, and Report Abuse pages.
 
 ## 7. Billing (when paid plans are enabled)
 
-Stripe configuration is all-or-none. Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `STRIPE_PRO_PRICE_ID`. Configure a recurring Pro price and webhook endpoint at `https://qh8z.com/api/billing/webhook` for checkout/subscription events. Webhook event IDs are stored for idempotency and failed processing remains retryable.
+Stripe configuration is all-or-none. Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `STRIPE_PRO_PRICE_ID`. Configure a recurring Pro price and webhook endpoint at `https://qh8z.com/api/billing/webhook` for checkout/subscription events. Webhook idempotency insertion, account/subscription state changes, and billing audit writes are committed in one PostgreSQL transaction so a process failure does not permanently mark a partially processed event as complete.
 
 Test checkout, plan activation, portal access, cancellation, failed/past-due behavior, duplicate webhook delivery, and account deletion with an active subscription.
 
 ## 8. Backups and monitoring
 
-Create encrypted, off-host backups on a schedule. The repository's backup command briefly quiesces QH8Z writes, produces separate PostgreSQL custom-format dumps for both the QH8Z and Shlink databases, packages them with a manifest, and writes a SHA-256 checksum:
+Create encrypted, off-host backups on a schedule. The repository's backup command briefly quiesces QH8Z, Shlink, and the public edge; produces separate PostgreSQL custom-format dumps for both databases using the maintenance role; packages them with a manifest; writes a SHA-256 checksum; and restores exactly the previously running service set without recreating healthy dependencies:
 
 ```bash
-bash scripts/backup.sh /secure/local/staging
-CONFIRM_RESTORE=YES bash scripts/restore.sh /secure/local/staging/qh8z-backup-YYYYMMDDTHHMMSSZ.tar.gz
+bash scripts/backup.sh /secure/local/staging .env
+CONFIRM_RESTORE=YES bash scripts/restore.sh /secure/local/staging/qh8z-backup-YYYYMMDDTHHMMSSZ.tar.gz .env
 ```
 
-`restore.sh` verifies the checksum when present, rejects unsafe/malformed archives, stops application/redirect writers, recreates both databases, restores them with `pg_restore --exit-on-error`, and only then restarts services that were previously running. If a restore fails, application services intentionally remain stopped rather than serving a partial restore.
+`backup.sh` returns a failure if it cannot restore the previously running services after taking the snapshot. `restore.sh` verifies the checksum when present, rejects unsafe/malformed archives, stops application/redirect writers, recreates both databases under their separate application owners, reapplies cross-database CONNECT restrictions, restores with `pg_restore --exit-on-error`, and only then restarts services that were previously running. If a restore fails, application services intentionally remain stopped rather than serving a partial restore.
 
-Encrypt backup archives before sending them off-host and keep multiple restore points. CI performs a destructive backup/restore drill that creates sentinel state in both databases, deletes it, restores the archive, and verifies both the QH8Z record and Shlink redirect return. Repeat a real production restore drill periodically; a CI drill does not replace testing your actual backup destination and credentials.
+Encrypt backup archives before sending them off-host and keep multiple restore points. CI performs a destructive backup/restore drill that creates sentinel state in both databases, verifies the two service roles cannot cross-connect, deletes the sentinels, restores the archive, re-verifies role isolation, and confirms both the QH8Z record, Shlink redirect, and HTTPS edge return. Repeat a real production restore drill periodically; a CI drill does not replace testing your actual backup destination and credentials.
 
-Monitor at minimum HTTPS uptime, `/readyz`, host disk/RAM, PostgreSQL storage, 5xx rate, SMTP failures, Web Risk failures, abuse queue age, certificate renewal, recurring reputation-worker failures, and backup success. Alert somebody who will actually respond.
+Monitor at minimum HTTPS uptime, `/readyz`, host disk/RAM, PostgreSQL storage, 5xx rate, SMTP failures, Web Risk failures, abuse queue age, certificate renewal, recurring reputation-worker failures, audit-write failures, and backup success/service-restoration failure. Alert somebody who will actually respond.
 
 ## 9. Trust, abuse, and legal operations
 
@@ -118,11 +123,11 @@ The repository includes substantial operational Privacy/Terms text, but the oper
 
 Public signup is a **go** only when all of these are true:
 
-- CI, production dependency audit, full HTTPS Docker integration, and destructive backup/restore integration are green on the exact deploy commit.
+- CI, production dependency audit, full HTTPS Docker integration, database-isolation assertions, and destructive backup/restore integration are green on the exact deploy commit.
 - deterministic dependency installation succeeds from the committed lockfile.
 - `scripts/preflight.sh` passes on the production host.
 - administrator MFA is enrolled and `/readyz` is healthy.
-- `scripts/postdeploy.sh` passes over the public internet.
+- `scripts/postdeploy.sh` passes over the public internet without timing out.
 - Web Risk, recurring reputation scans, Turnstile, SMTP verification/reset mail, support/abuse/security inboxes, backups, and monitoring are live.
 - DNS/TLS are stable.
 - Terms/Privacy reflect the actual operator and have received appropriate review.
