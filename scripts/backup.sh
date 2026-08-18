@@ -54,10 +54,10 @@ trap cleanup EXIT
 [[ "$app_was_running" == "1" ]] && "${compose[@]}" stop app >/dev/null
 [[ "$shlink_was_running" == "1" ]] && "${compose[@]}" stop shlink >/dev/null
 
-# QH8Z owns link/account state while Shlink owns redirect/visit state. Dump both
-# in PostgreSQL custom format so restores can recreate clean databases.
-"${compose[@]}" exec -T db pg_dump -U qh8z -d qh8z --format=custom --no-owner --no-acl > "$tmp/qh8z.dump"
-"${compose[@]}" exec -T db pg_dump -U qh8z -d shlink --format=custom --no-owner --no-acl > "$tmp/shlink.dump"
+# The postgres administrator is reserved for maintenance. Application services
+# use isolated qh8z_app/shlink_app roles and never receive this credential.
+"${compose[@]}" exec -T db pg_dump -U postgres -d qh8z --format=custom --no-owner --no-acl > "$tmp/qh8z.dump"
+"${compose[@]}" exec -T db pg_dump -U postgres -d shlink --format=custom --no-owner --no-acl > "$tmp/shlink.dump"
 test -s "$tmp/qh8z.dump"
 test -s "$tmp/shlink.dump"
 printf 'created_at=%s\nformat=postgres-custom-v1\ncontains=qh8z,shlink\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$tmp/MANIFEST.txt"
