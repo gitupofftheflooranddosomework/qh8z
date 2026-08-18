@@ -55,6 +55,11 @@ done
 curl -kfsS -D /tmp/qh8z-edge-headers.txt -o /dev/null https://localhost/
 grep -qi '^strict-transport-security:' /tmp/qh8z-edge-headers.txt
 grep -qi '^x-content-type-options: nosniff' /tmp/qh8z-edge-headers.txt
+curl -kfsS https://localhost/assets/styles.css | grep -q 'body'
+raw_template_status=$(curl -ksS --path-as-is -o /dev/null -w '%{http_code}' https://localhost/assets/privacy.html)
+[[ "$raw_template_status" == "404" ]]
+api_root_status=$(curl -ksS --path-as-is -o /dev/null -w '%{http_code}' https://localhost/api)
+[[ "$api_root_status" == "404" ]]
 
 # Bootstrap admin locally (never through a public HTTP bypass), log in, then enroll MFA.
 docker compose exec -T -e BOOTSTRAP_ADMIN_PASSWORD=correct-horse-battery -e BOOTSTRAP_ADMIN_SECRET=qh8z-ci-admin-bootstrap-secret-2026 app node src/bootstrap-admin.mjs >/tmp/qh8z-admin-bootstrap.txt
