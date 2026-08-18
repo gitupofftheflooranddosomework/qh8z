@@ -73,6 +73,11 @@ printf '%s' "$login_json" >/tmp/qh8z-admin-login.json
 challenge=$(python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["mfaRequired"] is True; print(d["challengeToken"])' </tmp/qh8z-admin-login.json)
 curl -fsS -c "$ADMIN_JAR" -H 'content-type: application/json' -d "{\"challengeToken\":\"$challenge\",\"code\":\"$recovery_code\"}" http://localhost:3000/api/auth/mfa >/tmp/qh8z-admin-mfa-login.json
 
+# MFA-protected accounts cannot change passwords with password proof alone.
+status=$(curl -sS -o /tmp/qh8z-password-no-mfa.json -w '%{http_code}' -b "$ADMIN_JAR" -H "Origin: $ORIGIN" -H 'content-type: application/json' -d '{"currentPassword":"correct-horse-battery","newPassword":"correct-horse-battery-rotated"}' http://localhost:3000/api/account/password)
+[[ "$status" == "401" ]]
+grep -q 'invalid_mfa_code' /tmp/qh8z-password-no-mfa.json
+
 # Normal users must verify email before they can create redirects.
 register_json=$(curl -fsS -c "$USER_JAR" -H 'content-type: application/json' -d '{"name":"CI User","email":"user@example.com","password":"correct-horse-battery","acceptTerms":true}' http://localhost:3000/api/auth/register)
 printf '%s' "$register_json" >/tmp/qh8z-user.json
