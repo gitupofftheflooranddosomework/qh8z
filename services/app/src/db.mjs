@@ -99,10 +99,19 @@ export async function migrate() {
 }
 
 export async function audit(actorUserId, eventType, targetId = null, metadata = {}) {
-  await pool.query(
-    'INSERT INTO audit_events(actor_user_id,event_type,target_id,metadata) VALUES($1,$2,$3,$4)',
-    [actorUserId, eventType, targetId, JSON.stringify(metadata)]
-  );
+  try {
+    await pool.query(
+      'INSERT INTO audit_events(actor_user_id,event_type,target_id,metadata) VALUES($1,$2,$3,$4)',
+      [actorUserId, eventType, targetId, JSON.stringify(metadata)]
+    );
+    return true;
+  } catch (error) {
+    // Audit telemetry must not turn an already-completed business mutation into
+    // an inconsistent 500 response. Billing uses its own transactional audit
+    // helper because those rows are part of the Stripe event transaction.
+    console.error(JSON.stringify({ level: 'error', event: 'audit.write_failed', auditEventType: eventType, targetId, message: error.message }));
+    return false;
+  }
 }
 
 export async function cleanupExpiredSessions() {
