@@ -108,3 +108,96 @@ jobs:
           sh -n deploy/backup/restore.sh
       - name: Build backup container
         run: docker build -t qh8z-backup:ci deploy/backup
+      - name: Exercise production readiness and redirect load
+        run: |
+          cat >/tmp/qh8z-ci-override.yml <<'YAML'
+          services:
+            qh8z:
+              ports:
+                - "127.0.0.1:18080:8080"
+          YAML
+          compose() {
+            docker compose -f deploy/compose.production.yml -f /tmp/qh8z-ci-override.yml "$@"
+          }
+          cleanup() {
+            compose down -v --remove-orphans >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT INT TERM
+          compose up -d --build postgres qh8z
+          attempts=0
+          until curl -fsS http://127.0.0.1:18080/readyz >/dev/null; do
+            attempts=$((attempts + 1))
+            if [ "$attempts" -ge 30 ]; then
+              compose ps
+              compose logs qh8z postgres
+              exit 1
+            fi
+            sleep 2
+          done
+          compose exec -T postgres psql -v ON_ERROR_STOP=1 -U qh8z -d qh8z -c \
+            "INSERT INTO links (slug, destination_url, created_at, updated_at) VALUES ('ci-load-test', 'https://example.org/ci', NOW(), NOW())"
+          go run ./cmd/loadtest \
+            -url http://127.0.0.1:18080/ci-load-test \
+            -host "$QH8Z_DOMAIN" \
+            -duration 3s \
+            -concurrency 8 \
+            -expect-status 302 \
+            -max-error-rate 0.01 \
+            -max-p95 1s
+          visits="$(compose exec -T postgres psql -U qh8z -d qh8z -tAc "SELECT visit_count FROM links WHERE slug='ci-load-test'")"
+          if [ "${visits:-0}" -le 0 ]; then
+            echo "redirect load did not record visits" >&2
+            exit 1
+          fi
+
+          network="$(docker inspect "$(compose ps -q postgres)" | jq -r '.[0].NetworkSettings.Networks | keys[]' | grep '_backend$' | head -n 1)"
+          mkdir -p .ci-restic
+          docker run --rm \
+            --network "$network" \
+            -e POSTGRES_HOST=postgres \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=qh8z \
+            -e POSTGRES_DB=qh8z \
+            -e RESTIC_REPOSITORY=/restic-repo \
+            -e BACKUP_ONCE=1 \
+            -v "$PWD/.ci-restic:/restic-repo" \
+            -v "$QH8Z_SECRETS_DIR/postgres_password:/run/secrets/postgres_password:ro" \
+            -v "$QH8Z_SECRETS_DIR/restic_password:/run/secrets/restic_password:ro" \
+            -v "$QH8Z_SECRETS_DIR/restic_s3_access_key:/run/secrets/restic_s3_access_key:ro" \
+            -v "$QH8Z_SECRETS_DIR/restic_s3_secret_key:/run/secrets/restic_s3_secret_key:ro" \
+            --tmpfs /backup-work \
+            --tmpfs /backup-status \
+            qh8z-backup:ci
+          test -s .ci-restic/config
+
+          compose exec -T postgres createdb -U qh8z qh8z_restore_ci
+          docker run --rm \
+            --network "$network" \
+            --entrypoint /usr/local/bin/restore.sh \
+            -e POSTGRES_HOST=postgres \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=qh8z \
+            -e POSTGRES_DB=qh8z_restore_ci \
+            -e RESTIC_REPOSITORY=/restic-repo \
+            -e RESTORE_SNAPSHOT=latest \
+            -e CONFIRM_RESTORE=qh8z_restore_ci \
+            -v "$PWD/.ci-restic:/restic-repo" \
+            -v "$QH8Z_SECRETS_DIR/postgres_password:/run/secrets/postgres_password:ro" \
+            -v "$QH8Z_SECRETS_DIR/restic_password:/run/secrets/restic_password:ro" \
+            -v "$QH8Z_SECRETS_DIR/restic_s3_access_key:/run/secrets/restic_s3_access_key:ro" \
+            -v "$QH8Z_SECRETS_DIR/restic_s3_secret_key:/run/secrets/restic_s3_secret_key:ro" \
+            --tmpfs /backup-work \
+            qh8z-backup:ci
+          restored="$(compose exec -T postgres psql -U qh8z -d qh8z_restore_ci -tAc "SELECT COUNT(*) FROM links WHERE slug='ci-load-test'")"
+          if [ "$restored" -ne 1 ]; then
+            echo "restored database did not contain the seeded link" >&2
+            exit 1
+          fi
+
+          QH8Z_FAILURE_TEST_ACK=maintenance-window \
+          QH8Z_ENV_FILE=/dev/null \
+          QH8Z_COMPOSE_FILE=deploy/compose.production.yml \
+          deploy/failure-test.sh
+
+          trap - EXIT INT TERM
+          cleanup
