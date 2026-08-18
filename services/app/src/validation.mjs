@@ -1,7 +1,7 @@
 export const RESERVED_SLUGS = new Set([
   'api', 'app', 'login', 'signup', 'admin', 'pricing', 'report', 'healthz', 'readyz',
   'verify', 'forgot', 'reset', 'privacy', 'terms', 'security', 'assets', 'favicon.svg',
-  'robots.txt', 'www', 'status', 'support', 'abuse'
+  'robots.txt', 'www', 'status', 'support', 'abuse', 'rest'
 ]);
 
 export function normalizeEmail(value) {
