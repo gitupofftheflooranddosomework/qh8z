@@ -12,7 +12,7 @@ cd "$ROOT"
 
 git fetch --tags --prune origin
 target_head=$(git rev-parse --verify "${TARGET_REF}^{commit}")
-backup_path=$(bash scripts/backup.sh "${QH8Z_BACKUP_DIR:-./backups}")
+backup_path=$(bash scripts/backup.sh "${QH8Z_BACKUP_DIR:-./backups}" "$ENV_FILE")
 git checkout --detach "$target_head" >/dev/null
 
 docker compose --env-file "$ENV_FILE" --profile production up -d --build --remove-orphans
