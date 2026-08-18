@@ -7,6 +7,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+assert_db_isolation() {
+  [[ "$(docker compose exec -T -e PGPASSWORD="$QH8Z_DB_PASSWORD" db psql -h 127.0.0.1 -U qh8z_app -d qh8z -Atc 'SELECT 1')" == "1" ]]
+  [[ "$(docker compose exec -T -e PGPASSWORD="$SHLINK_DB_PASSWORD" db psql -h 127.0.0.1 -U shlink_app -d shlink -Atc 'SELECT 1')" == "1" ]]
+  if docker compose exec -T -e PGPASSWORD="$QH8Z_DB_PASSWORD" db psql -h 127.0.0.1 -U qh8z_app -d shlink -Atc 'SELECT 1' >/tmp/qh8z-cross-db-1.log 2>&1; then
+    echo 'qh8z_app unexpectedly connected to the Shlink database' >&2
+    exit 1
+  fi
+  if docker compose exec -T -e PGPASSWORD="$SHLINK_DB_PASSWORD" db psql -h 127.0.0.1 -U shlink_app -d qh8z -Atc 'SELECT 1' >/tmp/qh8z-cross-db-2.log 2>&1; then
+    echo 'shlink_app unexpectedly connected to the QH8Z database' >&2
+    exit 1
+  fi
+}
+
 docker compose --profile production up -d --build --remove-orphans
 ready=0
 for _ in $(seq 1 90); do
@@ -14,9 +27,10 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 [[ "$ready" == "1" ]]
+assert_db_isolation
 
 # Create durable sentinel data in each database through the surfaces they own.
-docker compose exec -T db psql -U qh8z -d qh8z -v ON_ERROR_STOP=1 -c "INSERT INTO audit_events(event_type,target_id) VALUES('backup.restore.sentinel','ci-restore');" >/dev/null
+docker compose exec -T db psql -U postgres -d qh8z -v ON_ERROR_STOP=1 -c "INSERT INTO audit_events(event_type,target_id) VALUES('backup.restore.sentinel','ci-restore');" >/dev/null
 curl -fsS -X POST http://localhost:8080/rest/v3/short-urls \
   -H "X-Api-Key: ${SHLINK_API_KEY}" \
   -H 'content-type: application/json' \
@@ -34,11 +48,12 @@ for _ in $(seq 1 60); do
 done
 curl -fsS http://localhost:3000/readyz >/dev/null
 curl -kfsS https://localhost/healthz >/dev/null
+assert_db_isolation
 
 # Destroy both sentinels after the snapshot so only restore can bring them back.
-docker compose exec -T db psql -U qh8z -d qh8z -v ON_ERROR_STOP=1 -c "DELETE FROM audit_events WHERE event_type='backup.restore.sentinel' AND target_id='ci-restore';" >/dev/null
+docker compose exec -T db psql -U postgres -d qh8z -v ON_ERROR_STOP=1 -c "DELETE FROM audit_events WHERE event_type='backup.restore.sentinel' AND target_id='ci-restore';" >/dev/null
 curl -fsS -X DELETE http://localhost:8080/rest/v3/short-urls/backup-ci -H "X-Api-Key: ${SHLINK_API_KEY}" >/dev/null
-count=$(docker compose exec -T db psql -U qh8z -d qh8z -Atc "SELECT COUNT(*) FROM audit_events WHERE event_type='backup.restore.sentinel' AND target_id='ci-restore';")
+count=$(docker compose exec -T db psql -U postgres -d qh8z -Atc "SELECT COUNT(*) FROM audit_events WHERE event_type='backup.restore.sentinel' AND target_id='ci-restore';")
 [[ "$count" == "0" ]]
 
 CONFIRM_RESTORE=YES bash scripts/restore.sh "$backup_path"
@@ -48,10 +63,11 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 [[ "$ready" == "1" ]]
+assert_db_isolation
 
-count=$(docker compose exec -T db psql -U qh8z -d qh8z -Atc "SELECT COUNT(*) FROM audit_events WHERE event_type='backup.restore.sentinel' AND target_id='ci-restore';")
+count=$(docker compose exec -T db psql -U postgres -d qh8z -Atc "SELECT COUNT(*) FROM audit_events WHERE event_type='backup.restore.sentinel' AND target_id='ci-restore';")
 [[ "$count" == "1" ]]
 restored_redirect=$(curl -ksS -o /dev/null -w '%{redirect_url}' https://localhost/backup-ci)
 [[ "$restored_redirect" == "https://example.com/backup-restored" ]]
 
-echo 'QH8Z backup/restore drill passed for both databases and the HTTPS edge.'
+echo 'QH8Z backup/restore drill passed with database role isolation and HTTPS recovery.'
