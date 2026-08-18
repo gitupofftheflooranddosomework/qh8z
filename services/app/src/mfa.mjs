@@ -111,13 +111,19 @@ export async function verifyMfaUser(user, code, consumeRecovery = true) {
   if (verifyTotp(decrypt(user.mfa_secret_enc), normalized)) return true;
   const hash = recoveryHash(normalized);
   const hashes = Array.isArray(user.mfa_recovery_hashes) ? user.mfa_recovery_hashes : [];
-  const idx = hashes.indexOf(hash);
-  if (idx < 0) return false;
-  if (consumeRecovery) {
-    const next = hashes.filter((_, i) => i !== idx);
-    await pool.query('UPDATE users SET mfa_recovery_hashes=$1::jsonb WHERE id=$2', [JSON.stringify(next), user.id]);
-  }
-  return true;
+  if (!hashes.includes(hash)) return false;
+  if (!consumeRecovery) return true;
+  const { rows } = await pool.query(
+    `UPDATE users
+     SET mfa_recovery_hashes=COALESCE(
+       (SELECT jsonb_agg(value) FROM jsonb_array_elements_text(mfa_recovery_hashes) AS value WHERE value <> $1),
+       '[]'::jsonb
+     )
+     WHERE id=$2 AND mfa_recovery_hashes ? $1
+     RETURNING id`,
+    [hash, user.id]
+  );
+  return Boolean(rows[0]);
 }
 
 export function decryptMfaSecret(encrypted) {
