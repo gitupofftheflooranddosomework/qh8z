@@ -64,6 +64,15 @@ export function publicLink(row) {
   return { ...row, tags: Array.isArray(row.tags) ? row.tags : [], short_url: `${config.publicShortBaseUrl}/${row.short_code}`, state };
 }
 
+export function editConsumesPlanSlot(existing, nextExpiresAt, now = Date.now()) {
+  if (!existing?.expires_at) return false;
+  const previousExpiry = new Date(existing.expires_at).getTime();
+  if (!Number.isFinite(previousExpiry) || previousExpiry > now) return false;
+  if (!nextExpiresAt) return true;
+  const nextExpiry = new Date(nextExpiresAt).getTime();
+  return Number.isFinite(nextExpiry) && nextExpiry > now;
+}
+
 export async function validateDestination(longUrl, userId, targetId = null) {
   assertDestinationAllowed(longUrl);
   if (config.publicLaunchMode) await assertResolvedDestinationAllowed(longUrl);
@@ -163,6 +172,7 @@ export async function listLinks(userId, query = {}) {
 export async function updateLink(user, link, input = {}) {
   if (link.disabled_at) throw Object.assign(new Error('Restore the link before editing it.'), { status: 409, code: 'link_disabled' });
   const fields = normalizeLinkFields(input, link, user);
+  if (editConsumesPlanSlot(link, fields.expiresAt)) await friendlyPlanLimit(user);
   await validateDestination(fields.longUrl, user.id, link.id);
   await editShortUrl(link.short_code, { longUrl: fields.longUrl, title: fields.title, tags: fields.tags, validUntil: fields.expiresAt, maxVisits: fields.maxVisits });
   const { rows } = await pool.query(
