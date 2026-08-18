@@ -12,6 +12,24 @@ export const pool = new Pool({
   application_name: 'qh8z-app',
 });
 
+export function translateDbError(error) {
+  if (error?.constraint === 'qh8z_link_plan_limit') {
+    error.status = 402;
+    error.code = 'plan_limit_reached';
+    error.message = 'Your active-link limit has been reached.';
+  }
+  return error;
+}
+
+const rawPoolQuery = pool.query.bind(pool);
+pool.query = async (...args) => {
+  try {
+    return await rawPoolQuery(...args);
+  } catch (error) {
+    throw translateDbError(error);
+  }
+};
+
 export async function migrate() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -93,6 +111,33 @@ export async function migrate() {
     CREATE INDEX IF NOT EXISTS links_user_id_created_idx ON links(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS links_reputation_due_idx ON links(reputation_checked_at) WHERE disabled_at IS NULL;
     CREATE INDEX IF NOT EXISTS links_consistency_due_idx ON links(consistency_checked_at) WHERE disabled_at IS NULL;
+
+    CREATE OR REPLACE FUNCTION qh8z_enforce_link_plan_limit() RETURNS TRIGGER AS $$
+    DECLARE
+      account_plan TEXT;
+      account_limit INTEGER;
+      active_count INTEGER;
+    BEGIN
+      IF NEW.disabled_at IS NOT NULL THEN
+        RETURN NEW;
+      END IF;
+
+      PERFORM pg_advisory_xact_lock(hashtext(NEW.user_id), hashtext('qh8z-link-plan-limit'));
+      SELECT plan INTO account_plan FROM users WHERE id=NEW.user_id;
+      account_limit := CASE account_plan WHEN 'pro' THEN 5000 ELSE 25 END;
+      SELECT COUNT(*)::int INTO active_count FROM links WHERE user_id=NEW.user_id AND disabled_at IS NULL;
+
+      IF active_count >= account_limit THEN
+        RAISE EXCEPTION 'link plan limit reached'
+          USING ERRCODE='P0001', CONSTRAINT='qh8z_link_plan_limit';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+    DROP TRIGGER IF EXISTS qh8z_enforce_link_plan_limit_trigger ON links;
+    CREATE TRIGGER qh8z_enforce_link_plan_limit_trigger
+      BEFORE INSERT ON links
+      FOR EACH ROW EXECUTE FUNCTION qh8z_enforce_link_plan_limit();
 
     CREATE TABLE IF NOT EXISTS shlink_create_intents (
       short_code TEXT PRIMARY KEY,
