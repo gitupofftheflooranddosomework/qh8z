@@ -11,10 +11,37 @@ function normalizedUrl(value) {
   try { return new URL(String(value || '')).toString(); } catch { return null; }
 }
 
+function normalizedTitle(value) {
+  const title = String(value ?? '').trim();
+  return title || null;
+}
+
+function normalizedTags(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(tag => String(tag ?? '').trim()).filter(Boolean))].sort();
+}
+
+function normalizedInstant(value) {
+  if (value == null || String(value).trim() === '') return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : `invalid:${String(value)}`;
+}
+
+function normalizedMaxVisits(value) {
+  if (value == null || String(value).trim() === '') return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) ? number : `invalid:${String(value)}`;
+}
+
 export function trackedLinkMatches(link, upstream) {
   const expected = normalizedUrl(link?.long_url);
   const actual = normalizedUrl(upstream?.longUrl);
-  return Boolean(expected && actual && expected === actual);
+  if (!expected || !actual || expected !== actual) return false;
+  if (normalizedTitle(link?.title) !== normalizedTitle(upstream?.title)) return false;
+  if (JSON.stringify(normalizedTags(link?.tags)) !== JSON.stringify(normalizedTags(upstream?.tags))) return false;
+  if (normalizedInstant(link?.expires_at) !== normalizedInstant(upstream?.validUntil)) return false;
+  if (normalizedMaxVisits(link?.max_visits) !== normalizedMaxVisits(upstream?.maxVisits)) return false;
+  return true;
 }
 
 async function markMissing(link, reason) {
@@ -147,7 +174,7 @@ export async function reconcileTrackedLink(link, { confirmAfterMs = DEFAULT_CONF
   }
 
   const currentResult = await pool.query(
-    'SELECT id,short_code,long_url,title,updated_at,disabled_at,consistency_mismatch_at FROM links WHERE id=$1',
+    'SELECT id,short_code,long_url,title,tags,expires_at,max_visits,updated_at,disabled_at,consistency_mismatch_at FROM links WHERE id=$1',
     [link.id]
   );
   const current = currentResult.rows[0];
@@ -170,7 +197,13 @@ export async function reconcileTrackedLink(link, { confirmAfterMs = DEFAULT_CONF
   }
 
   try {
-    await editShortUrl(current.short_code, { longUrl: current.long_url, title: current.title });
+    await editShortUrl(current.short_code, {
+      longUrl: current.long_url,
+      title: current.title,
+      tags: current.tags,
+      validUntil: current.expires_at,
+      maxVisits: current.max_visits,
+    });
   } catch (error) {
     console.warn(JSON.stringify({ level: 'warn', event: 'consistency.repair_request_failed', linkId: current.id, message: error.message }));
   }
@@ -218,7 +251,7 @@ export async function reconcileDueLinks({ confirmAfterMs = DEFAULT_CONFIRM_AFTER
   const limit = Math.min(Math.max(Number(batch) || config.reputationRecheckBatch * 4 || 100, 25), 500);
   const intentResult = await reconcileCreateIntents({ orphanAfterMs, batch: limit });
   const { rows } = await pool.query(
-    `SELECT id,short_code,long_url,title,updated_at,disabled_at,consistency_checked_at,consistency_mismatch_at
+    `SELECT id,short_code,long_url,title,tags,expires_at,max_visits,updated_at,disabled_at,consistency_checked_at,consistency_mismatch_at
      FROM links
      WHERE disabled_at IS NULL
        AND (consistency_checked_at IS NULL
