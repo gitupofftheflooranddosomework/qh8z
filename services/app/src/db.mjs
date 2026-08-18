@@ -121,10 +121,22 @@ export async function migrate() {
       account_plan TEXT;
       account_limit INTEGER;
       active_count INTEGER;
+      old_active BOOLEAN := FALSE;
+      new_active BOOLEAN;
     BEGIN
-      IF NEW.disabled_at IS NOT NULL OR (NEW.expires_at IS NOT NULL AND NEW.expires_at <= NOW()) THEN
+      new_active := NEW.disabled_at IS NULL AND (NEW.expires_at IS NULL OR NEW.expires_at > NOW());
+      IF NOT new_active THEN
         RETURN NEW;
       END IF;
+
+      IF TG_OP = 'UPDATE' THEN
+        old_active := OLD.disabled_at IS NULL AND (OLD.expires_at IS NULL OR OLD.expires_at > NOW());
+        -- Editing an already-active link does not consume another plan slot.
+        IF old_active THEN
+          RETURN NEW;
+        END IF;
+      END IF;
+
       PERFORM pg_advisory_xact_lock(hashtext(NEW.user_id), hashtext('qh8z-link-plan-limit'));
       SELECT plan INTO account_plan FROM users WHERE id=NEW.user_id;
       account_limit := CASE account_plan WHEN 'pro' THEN 5000 ELSE 25 END;
