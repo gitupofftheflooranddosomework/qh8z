@@ -12,7 +12,7 @@ cd "$ROOT"
 old_head=$(git rev-parse HEAD)
 git fetch --tags --prune origin
 target_head=$(git rev-parse --verify "${TARGET_REF}^{commit}")
-backup_path=$(bash scripts/backup.sh "${QH8Z_BACKUP_DIR:-./backups}")
+backup_path=$(bash scripts/backup.sh "${QH8Z_BACKUP_DIR:-./backups}" "$ENV_FILE")
 
 deploy_ok=0
 rollback_code() {
