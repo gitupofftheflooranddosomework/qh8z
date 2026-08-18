@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeTags, normalizeLinkFields, normalizePagination, publicLink, linksToCsv } from '../src/link-service.mjs';
+import { normalizeTags, normalizeLinkFields, normalizePagination, editConsumesPlanSlot, publicLink, linksToCsv } from '../src/link-service.mjs';
 
 test('tags are normalized, deduplicated, and validated', () => {
   assert.deepEqual(normalizeTags('Launch, launch, Summer_26'), ['launch', 'summer_26']);
@@ -24,6 +24,17 @@ test('downgraded Free account can preserve existing Pro controls during ordinary
   assert.equal(fields.title, 'New title');
   assert.equal(fields.expiresAt, existing.expires_at);
   assert.equal(fields.maxVisits, 500);
+});
+
+test('expired link edits consume capacity only when they reactivate the link', () => {
+  const now = Date.parse('2026-08-18T00:00:00Z');
+  const expired = { expires_at: '2026-08-17T00:00:00Z' };
+  const active = { expires_at: '2026-08-19T00:00:00Z' };
+  assert.equal(editConsumesPlanSlot(expired, null, now), true);
+  assert.equal(editConsumesPlanSlot(expired, '2026-08-19T00:00:00Z', now), true);
+  assert.equal(editConsumesPlanSlot(expired, '2026-08-17T12:00:00Z', now), false);
+  assert.equal(editConsumesPlanSlot(active, null, now), false);
+  assert.equal(editConsumesPlanSlot({ expires_at: null }, null, now), false);
 });
 
 test('pagination rejects non-integers and unreasonable offsets without leaking DB errors', () => {
