@@ -39,11 +39,16 @@ function blockedAddress(address) {
   return (family === 4 && blockedIpv4(address)) || (family === 6 && blockedIpv6(address));
 }
 
-function unsafeResolvedDestination(address) {
-  const error = new Error('Private or reserved network destinations are not allowed, including hostnames that resolve to private addresses');
+function policyError(message, threats = ['PRIVATE_NETWORK']) {
+  const error = new Error(message);
   error.status = 422;
   error.code = 'unsafe_destination';
-  error.threats = ['PRIVATE_NETWORK'];
+  error.threats = threats;
+  return error;
+}
+
+function unsafeResolvedDestination(address) {
+  const error = policyError('Private or reserved network destinations are not allowed, including hostnames that resolve to private addresses');
   error.address = address;
   return error;
 }
@@ -52,10 +57,10 @@ export function assertDestinationAllowed(url) {
   const parsed = new URL(url);
   const hostname = normalizeHostname(parsed.hostname);
   const shortHost = (() => { try { return normalizeHostname(new URL(config.publicShortBaseUrl).hostname); } catch { return ''; } })();
-  if (hostname === shortHost || hostname === `www.${shortHost}`) throw new Error('QH8Z links cannot redirect back into the QH8Z short domain');
+  if (hostname === shortHost || hostname === `www.${shortHost}`) throw policyError('QH8Z links cannot redirect back into the QH8Z short domain', ['SELF_REDIRECT']);
   const family = net.isIP(hostname);
-  if (!family && blockedHostname(hostname)) throw new Error('Local-network destinations are not allowed');
-  if (family && blockedAddress(hostname)) throw new Error('Private or reserved network destinations are not allowed');
+  if (!family && blockedHostname(hostname)) throw policyError('Local-network destinations are not allowed');
+  if (family && blockedAddress(hostname)) throw policyError('Private or reserved network destinations are not allowed');
   return parsed.toString();
 }
 
