@@ -47,6 +47,9 @@ export const config = Object.freeze({
   smtpUser: process.env.SMTP_USER || '',
   smtpPass: process.env.SMTP_PASS || '',
   retentionDays: int(process.env.DATA_RETENTION_DAYS, 365),
+  reputationRecheckHours: int(process.env.REPUTATION_RECHECK_HOURS, 24),
+  reputationRecheckBatch: int(process.env.REPUTATION_RECHECK_BATCH, 25),
+  reputationWorkerMinutes: int(process.env.REPUTATION_WORKER_MINUTES, 15),
   legalOperatorName: trimmed(process.env.LEGAL_OPERATOR_NAME),
   legalJurisdiction: trimmed(process.env.LEGAL_JURISDICTION),
 });
