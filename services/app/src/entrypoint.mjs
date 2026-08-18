@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { startupProblems } from './config.mjs';
 import { pool } from './db.mjs';
 import { startReputationWorker, stopReputationWorker } from './reputation.mjs';
 
@@ -56,6 +57,8 @@ process.on('SIGTERM', () => void shutdown('SIGTERM'));
 process.on('SIGINT', () => void shutdown('SIGINT'));
 
 try {
+  const problems = startupProblems();
+  if (problems.length) throw new Error(`QH8Z startup blocked: ${problems.join('; ')}`);
   await import('./server.mjs');
   http.Server.prototype.listen = originalListen;
   startReputationWorker();
