@@ -33,14 +33,22 @@ function normalizedMaxVisits(value) {
   return Number.isSafeInteger(number) ? number : `invalid:${String(value)}`;
 }
 
+function upstreamValidUntil(upstream) {
+  return upstream?.meta?.validUntil ?? upstream?.validUntil ?? null;
+}
+
+function upstreamMaxVisits(upstream) {
+  return upstream?.meta?.maxVisits ?? upstream?.maxVisits ?? null;
+}
+
 export function trackedLinkMatches(link, upstream) {
   const expected = normalizedUrl(link?.long_url);
   const actual = normalizedUrl(upstream?.longUrl);
   if (!expected || !actual || expected !== actual) return false;
   if (normalizedTitle(link?.title) !== normalizedTitle(upstream?.title)) return false;
   if (JSON.stringify(normalizedTags(link?.tags)) !== JSON.stringify(normalizedTags(upstream?.tags))) return false;
-  if (normalizedInstant(link?.expires_at) !== normalizedInstant(upstream?.validUntil)) return false;
-  if (normalizedMaxVisits(link?.max_visits) !== normalizedMaxVisits(upstream?.maxVisits)) return false;
+  if (normalizedInstant(link?.expires_at) !== normalizedInstant(upstreamValidUntil(upstream))) return false;
+  if (normalizedMaxVisits(link?.max_visits) !== normalizedMaxVisits(upstreamMaxVisits(upstream))) return false;
   return true;
 }
 
