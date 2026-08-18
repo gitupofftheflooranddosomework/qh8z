@@ -20,6 +20,7 @@ export const config = Object.freeze({
   shlinkApiKey: process.env.SHLINK_API_KEY || '',
   cookieSecure: bool(process.env.COOKIE_SECURE, process.env.NODE_ENV === 'production'),
   sessionTtlDays: int(process.env.SESSION_TTL_DAYS, 30),
+  adminSessionHours: int(process.env.ADMIN_SESSION_HOURS, 12),
   adminEmail: trimmed(process.env.ADMIN_EMAIL).toLowerCase(),
   adminBootstrapSecret: process.env.ADMIN_BOOTSTRAP_SECRET || '',
   mfaEncryptionKey: process.env.MFA_ENCRYPTION_KEY || '',
@@ -81,6 +82,7 @@ export function startupProblems() {
   if (!config.adminEmail || !config.adminEmail.includes('@') || config.adminEmail.endsWith('.example') || config.adminEmail.includes('replace-with')) problems.push('ADMIN_EMAIL must be the real administrator email');
   if (!config.adminBootstrapSecret || config.adminBootstrapSecret.length < 24) problems.push('ADMIN_BOOTSTRAP_SECRET must be a strong one-time secret');
   if (!/^[0-9a-fA-F]{64}$/.test(config.mfaEncryptionKey)) problems.push('MFA_ENCRYPTION_KEY must be 32 random bytes encoded as 64 hex characters');
+  if (config.adminSessionHours < 1 || config.adminSessionHours > 24) problems.push('ADMIN_SESSION_HOURS must be between 1 and 24');
   if (!config.termsVersion) problems.push('TERMS_VERSION is required');
   if (!config.supportEmail.includes('@') || !config.abuseEmail.includes('@')) problems.push('Support and abuse email addresses must be configured');
   if (!config.legalOperatorName || !config.legalJurisdiction) problems.push('LEGAL_OPERATOR_NAME and LEGAL_JURISDICTION must identify the public service operator');
