@@ -41,14 +41,17 @@ function blockedAddress(address) {
 
 function policyError(message, threats = ['PRIVATE_NETWORK']) {
   const error = new Error(message);
-  error.status = 422;
-  error.code = 'unsafe_destination';
+  error.status = 400;
+  error.code = 'invalid_destination';
   error.threats = threats;
   return error;
 }
 
 function unsafeResolvedDestination(address) {
-  const error = policyError('Private or reserved network destinations are not allowed, including hostnames that resolve to private addresses');
+  const error = new Error('Private or reserved network destinations are not allowed, including hostnames that resolve to private addresses');
+  error.status = 422;
+  error.code = 'unsafe_destination';
+  error.threats = ['PRIVATE_NETWORK'];
   error.address = address;
   return error;
 }
