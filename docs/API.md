@@ -19,7 +19,7 @@ https://qh8z.com/api/v1
 Scopes:
 
 - `links:read` — read link inventory and statistics.
-- `links:write` — create, edit, disable, and restore links. Write endpoints also require the read scope when they return managed link records.
+- `links:write` — create, edit, and disable links.
 
 A revoked, expired, unknown, or out-of-scope token is rejected. Suspended accounts and accounts no longer eligible for QH8Z management cannot use write operations.
 
@@ -112,7 +112,7 @@ curl -X PATCH https://qh8z.com/api/v1/links/LINK_ID \
   }'
 ```
 
-Omitted fields keep their existing values. Disabled links must be restored before they can be edited.
+Omitted fields keep their existing values. Disabled links must be restored in the dashboard before they can be edited.
 
 ## Disable a link
 
@@ -123,18 +123,9 @@ curl -X DELETE https://qh8z.com/api/v1/links/LINK_ID \
 
 Disabling removes the redirect from Shlink but retains QH8Z ownership/history so the short code cannot be claimed by another account.
 
-## Restore a disabled link
+## Browser product operations
 
-```bash
-curl -X POST https://qh8z.com/api/v1/links/LINK_ID/restore \
-  -H "Authorization: Bearer $QH8Z_TOKEN"
-```
-
-Restore reclaims the same QH8Z-owned short code. Alias ownership is checked in PostgreSQL before Shlink is touched, and only the exact owning link record can use the restore path.
-
-## Browser-only product endpoints
-
-The session-authenticated dashboard also exposes operations that are intentionally not part of the first public bearer API contract, including bulk creation, CSV export, archive/unarchive, QR rendering, visit-history pages, billing, account settings, and trust/safety administration. These may be promoted into future `/api/v1` endpoints when their automation contracts are stable.
+The session-authenticated dashboard also exposes operations that are intentionally not part of the first public bearer API contract, including restore, bulk creation, CSV export, archive/unarchive, QR rendering, visit-history pages, billing, account settings, and trust/safety administration. These can be promoted into a future API version without silently expanding or changing the `/api/v1` contract.
 
 ## Errors
 
