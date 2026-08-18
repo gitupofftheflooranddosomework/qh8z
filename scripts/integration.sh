@@ -125,4 +125,13 @@ status=$(curl -sS -o /tmp/qh8z-delete-admin.json -w '%{http_code}' -b "$ADMIN_JA
 [[ "$status" == "401" ]]
 grep -q 'invalid_mfa_code' /tmp/qh8z-delete-admin.json
 
+# The recovery code consumed during the first MFA login cannot be replayed.
+curl -fsS -b "$ADMIN_JAR" -H "Origin: $ORIGIN" -X POST http://localhost:3000/api/auth/logout >/dev/null
+login_json=$(curl -fsS -H 'content-type: application/json' -d '{"email":"admin@example.com","password":"correct-horse-battery"}' http://localhost:3000/api/auth/login)
+printf '%s' "$login_json" >/tmp/qh8z-admin-login-reuse.json
+challenge=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["challengeToken"])' </tmp/qh8z-admin-login-reuse.json)
+status=$(curl -sS -o /tmp/qh8z-recovery-reuse.json -w '%{http_code}' -H 'content-type: application/json' -d "{\"challengeToken\":\"$challenge\",\"code\":\"$recovery_code\"}" http://localhost:3000/api/auth/mfa)
+[[ "$status" == "401" ]]
+grep -q 'invalid_mfa_code' /tmp/qh8z-recovery-reuse.json
+
 echo 'QH8Z public-readiness integration smoke test passed.'
