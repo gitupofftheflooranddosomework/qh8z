@@ -66,23 +66,14 @@ export function hasSessionCookie(req) {
   return Boolean(cookies[COOKIE]);
 }
 
-async function requireMfaForSensitiveAction(req, res) {
-  if (!req.user?.mfa_enabled_at) return true;
-  const route = req.originalUrl?.split('?')[0];
-  const sensitive = (req.method === 'DELETE' && route === '/api/account') || (req.method === 'POST' && route === '/api/account/password');
-  if (!sensitive) return true;
-  const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id]);
-  if (!rows[0] || !(await verifyMfaUser(rows[0], req.body?.mfaCode, false))) {
-    res.status(401).json({ error: 'invalid_mfa_code', message: 'An authenticator or recovery code is required for this account security change.' });
-    return false;
-  }
-  return true;
-}
-
 export async function requireUser(req, res, next) {
   try {
     if (!req.user) return res.status(401).json({ error: 'authentication_required' });
-    if (!(await requireMfaForSensitiveAction(req, res))) return;
+    const route = req.originalUrl?.split('?')[0];
+    if (req.method === 'DELETE' && route === '/api/account' && req.user.mfa_enabled_at) {
+      const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.user.id]);
+      if (!rows[0] || !(await verifyMfaUser(rows[0], req.body?.mfaCode, false))) return res.status(401).json({ error: 'invalid_mfa_code', message: 'An authenticator or recovery code is required to delete this account.' });
+    }
     next();
   } catch (error) { next(error); }
 }
