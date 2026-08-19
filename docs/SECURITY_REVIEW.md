@@ -137,7 +137,7 @@ The rehearsal produced 3,326 redirects in three seconds with zero failures, appr
 - Caddy is rebuilt on the patched qh8z Go/Alpine baseline because the pinned upstream image did not satisfy the launch scan.
 - PostgreSQL retains the official 17-alpine base but replaces/removes the vulnerable `gosu` helper with `su-exec` while preserving the official entrypoint behavior.
 - The backup worker is a minimal Alpine client image rather than a PostgreSQL server image.
-- Prometheus `v3.13.2` and Alertmanager `v0.33.1` are pinned upstream releases and are scanned as the exact images used by production Compose.
+- Prometheus `v3.13.2` and Alertmanager `v0.33.1` are rebuilt from their exact upstream release tags on Go 1.26.6 because their published images were compiled with older Go patch levels that failed the launch scan. Their Alpine 3.24 runtime images and rebuilt binaries are scanned before release.
 
 The dependency/container portion is resolved only when the Security Audit workflow is green on the final PR head that is merged.
 
