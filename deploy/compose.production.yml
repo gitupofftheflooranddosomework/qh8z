@@ -120,7 +120,7 @@ services:
     build:
       context: ./prometheus
       dockerfile: Dockerfile
-    image: qh8z-prometheus:3.13.1-patched
+    image: qh8z-prometheus:3.13.2-patched
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
