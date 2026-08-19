@@ -11,6 +11,8 @@ The public attack surface is intentionally small:
 - PostgreSQL: internal Docker network only
 - backup service: internal Docker network only
 
+Production uses locally hardened images for qh8z, Caddy, PostgreSQL, and the backup worker. Prometheus `v3.13.2` and Alertmanager `v0.33.1` are pinned upstream images and are scanned by the launch security workflow before release.
+
 ## 1. Host preparation
 
 Install Docker Engine and the Docker Compose plugin from Docker's supported Ubuntu repository. Create `/opt/qh8z` for the repository checkout and `/etc/qh8z/secrets` for secrets.
@@ -76,7 +78,8 @@ From the repository root:
 
 ```bash
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml config --quiet
-docker compose --env-file deploy/.env.production -f deploy/compose.production.yml build qh8z backup
+docker compose --env-file deploy/.env.production -f deploy/compose.production.yml pull prometheus alertmanager
+docker compose --env-file deploy/.env.production -f deploy/compose.production.yml build qh8z caddy postgres backup
 ```
 
 Take an encrypted one-shot database backup before replacing an existing release:
@@ -86,6 +89,14 @@ docker compose --env-file deploy/.env.production -f deploy/compose.production.ym
 ```
 
 ## 5. Deploy
+
+The guarded deploy script validates Compose, takes a pre-deploy backup when a production database already exists, pulls the pinned monitoring images, builds the production-owned images, starts the stack, and waits for database-backed readiness:
+
+```bash
+deploy/deploy.sh
+```
+
+Equivalent direct Compose startup is:
 
 ```bash
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build --remove-orphans
