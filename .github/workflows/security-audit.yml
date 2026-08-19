@@ -1,0 +1,55 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  vulnerabilities:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Scan reachable Go vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+      - name: Build production images
+        run: |
+          docker build -t qh8z:security .
+          docker build -t qh8z-caddy:security deploy/caddy
+          docker build -t qh8z-postgres:security deploy/postgres
+          docker build -t qh8z-prometheus:security deploy/prometheus
+          docker build -t qh8z-alertmanager:security deploy/alertmanager
+          docker build -t qh8z-backup:security deploy/backup
+
+      - name: Scan production images for fixable high or critical vulnerabilities
+        run: |
+          mkdir -p .trivy-cache
+          scan_image() {
+            image="$1"
+            echo "Scanning $image"
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$PWD/.trivy-cache:/root/.cache" \
+              aquasec/trivy:0.73.0 image \
+              --quiet \
+              --exit-code 1 \
+              --ignore-unfixed \
+              --severity HIGH,CRITICAL \
+              "$image"
+          }
+          scan_image qh8z:security
+          scan_image qh8z-caddy:security
+          scan_image qh8z-postgres:security
+          scan_image qh8z-prometheus:security
+          scan_image qh8z-alertmanager:security
+          scan_image qh8z-backup:security

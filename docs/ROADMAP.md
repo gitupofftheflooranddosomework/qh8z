@@ -69,6 +69,12 @@
 - [x] Blocklists and allowlists
 - [x] Abuse reporting workflow
 - [x] Suspension and review tooling
-- [ ] Terms, privacy, and acceptable-use policies
-- [ ] Observability and incident runbooks
-- [ ] Load testing
+- [x] Terms, privacy, and acceptable-use policies
+- [x] Observability and incident runbooks
+- [x] Load testing
+
+Repository-side launch readiness is implemented. The remaining Issue #3 work is the live-environment verification in [`LAUNCH_RUNBOOK.md`](LAUNCH_RUNBOOK.md): production DNS/TLS, provider and billing checks, monitored role mailboxes, live abuse/log validation, and the final public qh8z.com smoke test.
+
+## Post-launch candidates
+
+Unchecked items above are product enhancements rather than Issue #3 launch blockers unless a later launch decision explicitly promotes them into the gate.

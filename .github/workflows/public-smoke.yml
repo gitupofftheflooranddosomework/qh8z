@@ -1,0 +1,74 @@
+name: Public Smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qh8z-com:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify public DNS, TLS, pages, and private routes
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          assert_status() {
+            expected="$1"
+            url="$2"
+            actual="$(curl --silent --show-error --max-time 15 --output /dev/null --write-out '%{http_code}' "$url")"
+            if [ "$actual" != "$expected" ]; then
+              printf 'expected %s from %s, got %s\n' "$expected" "$url" "$actual" >&2
+              exit 1
+            fi
+          }
+
+          http_code="$(curl --silent --show-error --max-time 15 --output /dev/null --write-out '%{http_code}' http://qh8z.com/)"
+          http_redirect="$(curl --silent --show-error --max-time 15 --output /dev/null --write-out '%{redirect_url}' http://qh8z.com/)"
+          case "$http_code" in
+            301|302|307|308) ;;
+            *)
+              printf 'expected HTTP redirect from qh8z.com, got %s\n' "$http_code" >&2
+              exit 1
+              ;;
+          esac
+          case "$http_redirect" in
+            https://qh8z.com/*) ;;
+            *)
+              printf 'expected redirect to https://qh8z.com/, got %s\n' "$http_redirect" >&2
+              exit 1
+              ;;
+          esac
+
+          for path in / /healthz /pricing /terms /privacy /acceptable-use /report-abuse /security /.well-known/security.txt; do
+            assert_status 200 "https://qh8z.com${path}"
+          done
+
+          for path in /metrics /readyz /internal/tls/allow; do
+            assert_status 404 "https://qh8z.com${path}"
+          done
+
+          www_code="$(curl --silent --show-error --max-time 15 --output /dev/null --write-out '%{http_code}' https://www.qh8z.com/)"
+          www_redirect="$(curl --silent --show-error --max-time 15 --output /dev/null --write-out '%{redirect_url}' https://www.qh8z.com/)"
+          case "$www_code" in
+            301|302|307|308) ;;
+            *)
+              printf 'expected www HTTPS redirect, got %s\n' "$www_code" >&2
+              exit 1
+              ;;
+          esac
+          case "$www_redirect" in
+            https://qh8z.com/*) ;;
+            *)
+              printf 'expected www redirect to qh8z.com, got %s\n' "$www_redirect" >&2
+              exit 1
+              ;;
+          esac
+
+          echo 'qh8z.com public smoke test passed'

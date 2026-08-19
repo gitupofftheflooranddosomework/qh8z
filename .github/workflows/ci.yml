@@ -61,8 +61,12 @@ jobs:
         run: CGO_ENABLED=0 go build -trimpath ./cmd/qh8z ./cmd/healthcheck ./cmd/loadtest
       - name: Validate development Compose
         run: docker compose config --quiet
-      - name: Build application container
-        run: docker build -t qh8z:ci .
+      - name: Build production containers
+        run: |
+          docker build -t qh8z:ci .
+          docker build -t qh8z-caddy:ci deploy/caddy
+          docker build -t qh8z-prometheus:ci deploy/prometheus
+          docker build -t qh8z-alertmanager:ci deploy/alertmanager
       - name: Prepare production config fixtures
         run: |
           mkdir -p "$QH8Z_SECRETS_DIR"
@@ -80,7 +84,7 @@ jobs:
             -e ACME_EMAIL \
             -e QH8Z_DOMAIN \
             -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2.11.4-alpine \
+            qh8z-caddy:ci \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Validate Prometheus config and alerts
         run: |
@@ -88,12 +92,12 @@ jobs:
             --entrypoint /bin/promtool \
             -v "$PWD/deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
             -v "$PWD/deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro" \
-            prom/prometheus:v3.13.1 \
+            qh8z-prometheus:ci \
             check config /etc/prometheus/prometheus.yml
           docker run --rm \
             --entrypoint /bin/promtool \
             -v "$PWD/deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro" \
-            prom/prometheus:v3.13.1 \
+            qh8z-prometheus:ci \
             check rules /etc/prometheus/alerts.yml
       - name: Validate Alertmanager config
         run: |
@@ -102,7 +106,7 @@ jobs:
             --entrypoint /bin/amtool \
             -v "$PWD/deploy/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
             -v "$QH8Z_SECRETS_DIR/alertmanager_discord_webhook:/run/secrets/alertmanager_discord_webhook:ro" \
-            prom/alertmanager:v0.32.1 \
+            qh8z-alertmanager:ci \
             check-config /etc/alertmanager/alertmanager.yml
       - name: Validate operations scripts
         run: |

@@ -8,7 +8,10 @@ x-logging: &default-logging
 
 services:
   caddy:
-    image: caddy:2.11.4-alpine
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile
+    image: qh8z-caddy:2.11.4-patched
     restart: unless-stopped
     environment:
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
@@ -89,7 +92,10 @@ services:
     logging: *default-logging
 
   postgres:
-    image: postgres:17-alpine
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
+    image: qh8z-postgres:17-hardened
     restart: unless-stopped
     environment:
       POSTGRES_USER: qh8z
@@ -111,7 +117,10 @@ services:
     logging: *default-logging
 
   prometheus:
-    image: prom/prometheus:v3.13.1
+    build:
+      context: ./prometheus
+      dockerfile: Dockerfile
+    image: qh8z-prometheus:3.13.2-patched
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -135,7 +144,10 @@ services:
     logging: *default-logging
 
   alertmanager:
-    image: prom/alertmanager:v0.32.1
+    build:
+      context: ./alertmanager
+      dockerfile: Dockerfile
+    image: qh8z-alertmanager:0.33.1-patched
     restart: unless-stopped
     group_add:
       - ${QH8Z_SECRET_GID:-65532}
