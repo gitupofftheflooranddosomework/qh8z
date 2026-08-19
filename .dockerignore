@@ -1,0 +1,11 @@
+.git
+.gitignore
+.github
+.ci-secrets
+.env
+.env.*
+deploy/.env.production
+**/secrets
+*.log
+*.tmp
+coverage.out
