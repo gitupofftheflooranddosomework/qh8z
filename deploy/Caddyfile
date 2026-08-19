@@ -1,7 +1,7 @@
 {
 	email {$ACME_EMAIL}
 	on_demand_tls {
-		task http://qh8z:8080/internal/tls/allow
+		ask http://qh8z:8080/internal/tls/allow
 	}
 }
 
