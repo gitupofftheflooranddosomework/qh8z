@@ -30,9 +30,11 @@ type linkResponse struct {
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9_-]{3,64}$`)
 var reserved = map[string]bool{
-	"api": true, "healthz": true, "readyz": true, "admin": true,
-	"login": true, "signup": true, "pricing": true, "verify-email": true,
-	"dashboard": true,
+	"api": true, "assets": true, "internal": true,
+	"healthz": true, "readyz": true, "metrics": true,
+	"admin": true, "login": true, "signup": true, "verify-email": true,
+	"dashboard": true, "pricing": true,
+	"terms": true, "privacy": true, "acceptable-use": true, "report-abuse": true,
 }
 
 const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -88,11 +90,15 @@ func (a *app) createLink(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	custom := strings.TrimSpace(req.CustomSlug)
 	if custom != "" {
-		if !slugPattern.MatchString(custom) || reserved[custom] {
-			writeError(w, http.StatusBadRequest, "custom slug must be 3-64 lowercase letters, numbers, hyphens, or underscores and cannot be reserved")
+		if !validSlug(custom) {
+			writeError(w, http.StatusBadRequest, "customSlug must be 3-64 lowercase letters, numbers, underscores, or hyphens")
 			return
 		}
-		item := core.Link{
+		if reserved[custom] {
+			writeError(w, http.StatusBadRequest, "customSlug is reserved")
+			return
+		}
+		created, err := a.store.CreateLink(r.Context(), core.Link{
 			Slug:            custom,
 			URL:             target,
 			WorkspaceID:     auth.WorkspaceID,
@@ -101,22 +107,26 @@ func (a *app) createLink(w http.ResponseWriter, r *http.Request) {
 			DomainHost:      domainHost,
 			CreatedAt:       now,
 			UpdatedAt:       now,
-		}
-		if err := a.createOwnedLink(r, auth, item); err != nil {
+		})
+		if err != nil {
+			if errors.Is(err, core.ErrConflict) {
+				writeError(w, http.StatusConflict, "customSlug already exists")
+				return
+			}
 			a.writeStoreError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, a.response(item))
+		_ = a.audit(r, auth, "link.created", "link", created.Slug, map[string]string{"custom": "true"})
+		writeJSON(w, http.StatusCreated, a.presentLink(created))
 		return
 	}
-
-	for attempts := 0; attempts < 8; attempts++ {
+	for range 10 {
 		slug, err := randomSlug(7)
 		if err != nil {
 			a.internalRandomError(w, err)
 			return
 		}
-		item := core.Link{
+		created, err := a.store.CreateLink(r.Context(), core.Link{
 			Slug:            slug,
 			URL:             target,
 			WorkspaceID:     auth.WorkspaceID,
@@ -125,154 +135,111 @@ func (a *app) createLink(w http.ResponseWriter, r *http.Request) {
 			DomainHost:      domainHost,
 			CreatedAt:       now,
 			UpdatedAt:       now,
+		})
+		if err == nil {
+			_ = a.audit(r, auth, "link.created", "link", created.Slug, map[string]string{"custom": "false"})
+			writeJSON(w, http.StatusCreated, a.presentLink(created))
+			return
 		}
-		err = a.createOwnedLink(r, auth, item)
-		if errors.Is(err, core.ErrConflict) {
-			continue
-		}
-		if err != nil {
+		if !errors.Is(err, core.ErrConflict) {
 			a.writeStoreError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, a.response(item))
-		return
 	}
 	writeError(w, http.StatusServiceUnavailable, "could not allocate a unique short code")
 }
 
-func (a *app) createOwnedLink(r *http.Request, auth core.AuthContext, item core.Link) error {
-	audit := actorAudit(auth, "link.created", "link", item.Slug, item.CreatedAt, map[string]string{
-		"destination": item.URL,
-		"domain_id":   item.DomainID,
-	})
-	return a.store.CreateOwnedLink(r.Context(), item, audit)
-}
-
 func (a *app) getLink(w http.ResponseWriter, r *http.Request) {
-	auth, err := a.authorize(r, "links:read", true)
+	auth, err := a.authorize(r, "links:read", false)
 	if err != nil {
 		a.writeAuthError(w, err)
 		return
 	}
-	item, err := a.store.GetWorkspaceLink(r.Context(), auth.WorkspaceID, r.PathValue("slug"))
+	link, err := a.store.GetLink(r.Context(), r.PathValue("slug"))
 	if err != nil {
 		a.writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, a.response(item))
-}
-
-func (a *app) linkStats(w http.ResponseWriter, r *http.Request) {
-	auth, err := a.authorize(r, "analytics:read", true)
-	if err != nil {
-		a.writeAuthError(w, err)
+	if !a.linkReadableBy(auth, link) {
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	stats, err := a.store.StatsForWorkspace(r.Context(), auth.WorkspaceID, r.PathValue("slug"), 50)
-	if err != nil {
-		a.writeStoreError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, stats)
+	writeJSON(w, http.StatusOK, a.presentLink(link))
 }
 
 func (a *app) redirect(w http.ResponseWriter, r *http.Request) {
 	slug := r.PathValue("slug")
-	requestHost := canonicalHost(r.Host)
-	base, _ := url.Parse(a.baseURL)
-	primaryHost := canonicalHost(base.Host)
-	var item core.Link
+	host := requestHostname(r)
+	var link core.Link
 	var err error
-	if requestHost == primaryHost {
-		item, err = a.store.GetLink(r.Context(), slug)
-		if err == nil && item.DomainID != "" {
-			err = core.ErrNotFound
-		}
+	if host != "" && !sameHostname(host, baseHostname(a.baseURL)) {
+		link, err = a.store.GetCustomDomainLink(r.Context(), host, slug)
 	} else {
-		item, err = a.store.GetCustomDomainLink(r.Context(), requestHost, slug)
+		link, err = a.store.GetLink(r.Context(), slug)
 	}
-	if errors.Is(err, core.ErrNotFound) {
+	if err != nil || link.DisabledAt != nil || link.SuspendedAt != nil {
 		http.NotFound(w, r)
 		return
 	}
-	if err != nil {
-		a.logger.Error("redirect lookup failed", "slug", slug, "host", requestHost, "error", err)
-		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
-		return
+	if err := a.store.IncrementVisit(r.Context(), slug, time.Now().UTC(), r.Referer(), r.UserAgent()); err != nil {
+		a.logger.Error("failed to record visit", "slug", slug, "error", err)
 	}
-	if item.DisabledAt != nil || item.SuspendedAt != nil {
-		http.NotFound(w, r)
-		return
-	}
-	visit := core.Visit{
-		Slug:      slug,
-		VisitedAt: time.Now().UTC(),
-		Referer:   sanitizeHeader(r.Referer(), 2048),
-		UserAgent: sanitizeHeader(r.UserAgent(), 1024),
-	}
-	if _, err := a.store.RecordVisit(r.Context(), visit); err != nil {
-		a.logger.Error("visit recording failed", "slug", slug, "error", err)
-	}
-	http.Redirect(w, r, item.URL, http.StatusFound)
+	http.Redirect(w, r, link.URL, http.StatusFound)
 }
 
-func (a *app) response(item core.Link) linkResponse {
+func (a *app) presentLink(link core.Link) linkResponse {
+	shortBase := a.baseURL
+	if link.DomainHost != "" {
+		shortBase = "https://" + link.DomainHost
+	}
 	return linkResponse{
-		Slug:             item.Slug,
-		URL:              item.URL,
-		ShortURL:         a.shortURL(item),
-		WorkspaceID:      item.WorkspaceID,
-		DomainID:         item.DomainID,
-		DomainHost:       item.DomainHost,
-		CreatedAt:        item.CreatedAt,
-		UpdatedAt:        item.UpdatedAt,
-		Visits:           item.Visits,
-		DisabledAt:       item.DisabledAt,
-		SuspendedAt:      item.SuspendedAt,
-		SuspensionReason: item.SuspensionReason,
+		Slug:             link.Slug,
+		URL:              link.URL,
+		ShortURL:         strings.TrimRight(shortBase, "/") + "/" + link.Slug,
+		WorkspaceID:      link.WorkspaceID,
+		DomainID:         link.DomainID,
+		DomainHost:       link.DomainHost,
+		CreatedAt:        link.CreatedAt,
+		UpdatedAt:        link.UpdatedAt,
+		Visits:           link.Visits,
+		DisabledAt:       link.DisabledAt,
+		SuspendedAt:      link.SuspendedAt,
+		SuspensionReason: link.SuspensionReason,
 	}
 }
 
-func normalizeURL(raw string) (string, error) {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Host == "" {
-		return "", errors.New("invalid URL")
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", errors.New("URL must use http or https")
-	}
-	if u.User != nil {
-		return "", errors.New("URLs containing credentials are not allowed")
-	}
-	if err := validatePublicDestination(u); err != nil {
-		return "", err
-	}
-	return u.String(), nil
+func validSlug(s string) bool {
+	return utf8.RuneCountInString(s) == len(s) && slugPattern.MatchString(s)
 }
 
 func randomSlug(n int) (string, error) {
-	out := make([]byte, 0, n)
-	b := make([]byte, 1)
-	for len(out) < n {
-		if _, err := rand.Read(b); err != nil {
-			return "", err
+	out := make([]byte, n)
+	for i := range out {
+		for {
+			var b [1]byte
+			if _, err := rand.Read(b[:]); err != nil {
+				return "", err
+			}
+			if b[0] < 252 {
+				out[i] = alphabet[int(b[0])%len(alphabet)]
+				break
+			}
 		}
-		if b[0] >= 252 {
-			continue
-		}
-		out = append(out, alphabet[int(b[0])%len(alphabet)])
 	}
 	return string(out), nil
 }
 
-func sanitizeHeader(value string, maxBytes int) string {
-	value = strings.ToValidUTF8(value, "")
-	if len(value) <= maxBytes {
-		return value
+func normalizeURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) > 2048 {
+		return "", errors.New("url is too long")
 	}
-	value = value[:maxBytes]
-	for !utf8.ValidString(value) {
-		value = value[:len(value)-1]
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", errors.New("url must be an absolute http or https URL")
 	}
-	return value
+	if u.User != nil {
+		return "", errors.New("URLs containing credentials are not allowed")
+	}
+	return u.String(), nil
 }
