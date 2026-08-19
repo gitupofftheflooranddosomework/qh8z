@@ -16,3 +16,8 @@ var Privacy string
 //
 //go:embed legal/ACCEPTABLE_USE.md
 var AcceptableUse string
+
+// Pricing is the source-of-truth launch pricing and limits published by qh8z.
+//
+//go:embed PRICING.md
+var Pricing string
