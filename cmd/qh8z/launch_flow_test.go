@@ -113,7 +113,7 @@ func TestLaunchJourneySignupShortenRedirectAnalyticsAndBilling(t *testing.T) {
 	billingReq.Header.Set("X-QH8Z-Workspace", owner.Workspace.ID)
 	billingRec := httptest.NewRecorder()
 	a.routes().ServeHTTP(billingRec, billingReq)
-	if billingRec.Code != http.StatusOK || !strings.Contains(billingRec.Body.String(), `"planCode":"pro"`) || !strings.Contains(billingRec.Body.String(), `"customDomainLimit":10`) {
+	if billingRec.Code != http.StatusOK || !strings.Contains(billingRec.Body.String(), `"plan":"pro"`) || !strings.Contains(billingRec.Body.String(), `"customDomainLimit":10`) {
 		t.Fatalf("Pro billing status = %d, body = %s", billingRec.Code, billingRec.Body.String())
 	}
 
