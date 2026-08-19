@@ -70,8 +70,8 @@ jobs:
             printf 'ci-placeholder-%s-abcdefghijklmnopqrstuvwxyz0123456789\n' "$secret" > "$QH8Z_SECRETS_DIR/$secret"
           done
           sudo chown -R "0:$QH8Z_SECRET_GID" "$QH8Z_SECRETS_DIR"
+          sudo find "$QH8Z_SECRETS_DIR" -type f -exec chmod 640 {} +
           sudo chmod 750 "$QH8Z_SECRETS_DIR"
-          sudo chmod 640 "$QH8Z_SECRETS_DIR"/*
       - name: Validate production Compose
         run: docker compose -f deploy/compose.production.yml config --quiet
       - name: Validate Caddy config
