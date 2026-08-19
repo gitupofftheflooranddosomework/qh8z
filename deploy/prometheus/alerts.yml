@@ -1,0 +1,38 @@
+groups:
+  - name: qh8z
+    rules:
+      - alert: Qh8zDown
+        expr: up{job="qh8z"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: qh8z is unreachable
+          description: Prometheus has been unable to scrape qh8z for two minutes.
+
+      - alert: Qh8zStorageDown
+        expr: qh8z_storage_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: qh8z storage is unavailable
+          description: The application is running but its storage readiness check is failing.
+
+      - alert: Qh8zHighErrorRate
+        expr: rate(qh8z_http_requests_total[5m]) > 0.1 and (rate(qh8z_http_5xx_total[5m]) / clamp_min(rate(qh8z_http_requests_total[5m]), 0.001)) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: qh8z HTTP 5xx rate is elevated
+          description: More than five percent of requests have returned 5xx responses for five minutes.
+
+      - alert: Qh8zRateLimitSpike
+        expr: rate(qh8z_http_rate_limited_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: qh8z rate limiting is unusually high
+          description: qh8z is rejecting more than one request per second with HTTP 429.

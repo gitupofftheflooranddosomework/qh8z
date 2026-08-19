@@ -1,0 +1,43 @@
+{
+	email {$ACME_EMAIL}
+	on_demand_tls {
+		ask http://qh8z:8080/internal/tls/allow
+	}
+}
+
+{$QH8Z_DOMAIN} {
+	encode zstd gzip
+	log {
+		output stdout
+		format json
+	}
+
+	@private path /metrics /internal/* /readyz
+	respond @private 404
+
+	reverse_proxy qh8z:8080
+}
+
+www.{$QH8Z_DOMAIN} {
+	redir https://{$QH8Z_DOMAIN}{uri} permanent
+}
+
+https:// {
+	tls {
+		on_demand
+	}
+	encode zstd gzip
+	log {
+		output stdout
+		format json
+	}
+
+	@private path /metrics /internal/* /readyz
+	respond @private 404
+
+	forward_auth qh8z:8080 {
+		uri /internal/tls/allow?domain={host}
+	}
+
+	reverse_proxy qh8z:8080
+}

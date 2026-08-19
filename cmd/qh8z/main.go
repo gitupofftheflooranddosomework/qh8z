@@ -36,6 +36,10 @@ func main() {
 	port := envOr("PORT", "8080")
 	baseURL := strings.TrimRight(envOr("QH8Z_BASE_URL", "http://localhost:"+port), "/")
 	environment := strings.ToLower(envOr("QH8Z_ENV", "development"))
+	if environment == "production" && !strings.HasPrefix(baseURL, "https://") {
+		logger.Error("QH8Z_BASE_URL must use https in production")
+		os.Exit(1)
+	}
 
 	store, err := openStore(context.Background(), logger, environment)
 	if err != nil {
@@ -90,7 +94,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("qh8z listening", "address", server.Addr, "base_url", baseURL)
+	logger.Info("qh8z listening", "address", server.Addr, "base_url", baseURL, "environment", environment)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("http server failed", "error", err)
 		os.Exit(1)
@@ -107,7 +111,11 @@ func openStore(ctx context.Context, logger *slog.Logger, environment string) (st
 		logger.Warn("using in-memory storage; data will not survive restarts")
 		return storage.NewMemory(), nil
 	case "postgres":
-		return postgres.Open(ctx, os.Getenv("DATABASE_URL"))
+		dsn, err := databaseURL()
+		if err != nil {
+			return nil, err
+		}
+		return postgres.Open(ctx, dsn)
 	default:
 		return nil, errors.New("QH8Z_STORAGE must be memory or postgres")
 	}
@@ -122,12 +130,20 @@ func openMailer(logger *slog.Logger, environment string) (mailer.Mailer, error) 
 	case "log":
 		return mailer.Log{Logger: logger}, nil
 	case "smtp":
+		username, err := secretValue("SMTP_USERNAME")
+		if err != nil {
+			return nil, err
+		}
+		password, err := secretValue("SMTP_PASSWORD")
+		if err != nil {
+			return nil, err
+		}
 		cfg := mailer.SMTPConfig{
-			Address:  os.Getenv("SMTP_ADDR"),
-			Host:     os.Getenv("SMTP_HOST"),
-			Username: os.Getenv("SMTP_USERNAME"),
-			Password: os.Getenv("SMTP_PASSWORD"),
-			From:     os.Getenv("SMTP_FROM"),
+			Address:  envOr("SMTP_ADDR", ""),
+			Host:     envOr("SMTP_HOST", ""),
+			Username: username,
+			Password: password,
+			From:     envOr("SMTP_FROM", ""),
 		}
 		if cfg.Address == "" || cfg.Host == "" || cfg.From == "" {
 			return nil, errors.New("SMTP_ADDR, SMTP_HOST, and SMTP_FROM are required for SMTP email")
@@ -142,6 +158,8 @@ func (a *app) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("GET /readyz", a.ready)
+	mux.HandleFunc("GET /metrics", a.metrics)
+	mux.HandleFunc("GET /internal/tls/allow", a.tlsAllow)
 	mux.HandleFunc("GET /dashboard", a.dashboard)
 	mux.HandleFunc("GET /assets/dashboard.js", a.dashboardJS)
 
@@ -192,13 +210,14 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /", a.home)
 
 	limited := a.apiRateLimit(mux)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	routed := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/billing/webhook" {
 			mux.ServeHTTP(w, r)
 			return
 		}
 		limited.ServeHTTP(w, r)
 	})
+	return a.observe(routed)
 }
 
 func (a *app) health(w http.ResponseWriter, _ *http.Request) {

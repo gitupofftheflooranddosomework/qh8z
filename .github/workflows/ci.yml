@@ -27,6 +27,16 @@ jobs:
           --health-retries 10
     env:
       QH8Z_TEST_DATABASE_URL: postgres://qh8z:qh8z@localhost:5432/qh8z_test?sslmode=disable
+      QH8Z_DOMAIN: qh8z.example.com
+      ACME_EMAIL: ci@example.com
+      SMTP_ADDR: smtp.example.com:587
+      SMTP_HOST: smtp.example.com
+      SMTP_USERNAME: ci
+      SMTP_FROM: qh8z-ci@example.com
+      STRIPE_PRO_PRICE_ID: price_ci
+      RESTIC_REPOSITORY: s3:https://storage.example.com/qh8z-ci
+      QH8Z_SECRETS_DIR: ${{ github.workspace }}/.ci-secrets
+      QH8Z_SECRET_GID: "65532"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v7
@@ -48,8 +58,150 @@ jobs:
       - name: Test
         run: go test -race ./...
       - name: Build
-        run: CGO_ENABLED=0 go build -trimpath ./cmd/qh8z
-      - name: Validate Compose
+        run: CGO_ENABLED=0 go build -trimpath ./cmd/qh8z ./cmd/healthcheck ./cmd/loadtest
+      - name: Validate development Compose
         run: docker compose config --quiet
-      - name: Build container
+      - name: Build application container
         run: docker build -t qh8z:ci .
+      - name: Prepare production config fixtures
+        run: |
+          mkdir -p "$QH8Z_SECRETS_DIR"
+          for secret in postgres_password smtp_password webrisk_api_key admin_token rate_limit_salt stripe_secret_key stripe_webhook_secret restic_password restic_s3_access_key restic_s3_secret_key alertmanager_discord_webhook; do
+            printf 'ci-placeholder-%s-abcdefghijklmnopqrstuvwxyz0123456789\n' "$secret" > "$QH8Z_SECRETS_DIR/$secret"
+          done
+          sudo chown -R "0:$QH8Z_SECRET_GID" "$QH8Z_SECRETS_DIR"
+          sudo find "$QH8Z_SECRETS_DIR" -type f -exec chmod 640 {} +
+          sudo chmod 750 "$QH8Z_SECRETS_DIR"
+      - name: Validate production Compose
+        run: docker compose -f deploy/compose.production.yml config --quiet
+      - name: Validate Caddy config
+        run: |
+          docker run --rm \
+            -e ACME_EMAIL \
+            -e QH8Z_DOMAIN \
+            -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.11.4-alpine \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Validate Prometheus config and alerts
+        run: |
+          docker run --rm \
+            --entrypoint /bin/promtool \
+            -v "$PWD/deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            -v "$PWD/deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro" \
+            prom/prometheus:v3.13.1 \
+            check config /etc/prometheus/prometheus.yml
+          docker run --rm \
+            --entrypoint /bin/promtool \
+            -v "$PWD/deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro" \
+            prom/prometheus:v3.13.1 \
+            check rules /etc/prometheus/alerts.yml
+      - name: Validate Alertmanager config
+        run: |
+          docker run --rm \
+            --group-add "$QH8Z_SECRET_GID" \
+            --entrypoint /bin/amtool \
+            -v "$PWD/deploy/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+            -v "$QH8Z_SECRETS_DIR/alertmanager_discord_webhook:/run/secrets/alertmanager_discord_webhook:ro" \
+            prom/alertmanager:v0.32.1 \
+            check-config /etc/alertmanager/alertmanager.yml
+      - name: Validate operations scripts
+        run: |
+          sh -n deploy/init-secrets.sh
+          sh -n deploy/failure-test.sh
+          sh -n deploy/backup/backup.sh
+          sh -n deploy/backup/restore.sh
+      - name: Build backup container
+        run: docker build -t qh8z-backup:ci deploy/backup
+      - name: Exercise production readiness and redirect load
+        run: |
+          cat >/tmp/qh8z-ci-override.yml <<'YAML'
+          services:
+            qh8z:
+              ports:
+                - "127.0.0.1:18080:8080"
+          YAML
+          compose() {
+            docker compose -f deploy/compose.production.yml -f /tmp/qh8z-ci-override.yml "$@"
+          }
+          cleanup() {
+            compose down -v --remove-orphans >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT INT TERM
+          compose up -d --build postgres qh8z
+          attempts=0
+          until curl -fsS http://127.0.0.1:18080/readyz >/dev/null; do
+            attempts=$((attempts + 1))
+            if [ "$attempts" -ge 30 ]; then
+              compose ps
+              compose logs qh8z postgres
+              exit 1
+            fi
+            sleep 2
+          done
+          compose exec -T postgres psql -v ON_ERROR_STOP=1 -U qh8z -d qh8z -c \
+            "INSERT INTO links (slug, destination_url, created_at, updated_at) VALUES ('ci-load-test', 'https://example.org/ci', NOW(), NOW())"
+          go run ./cmd/loadtest \
+            -url http://127.0.0.1:18080/ci-load-test \
+            -host "$QH8Z_DOMAIN" \
+            -duration 3s \
+            -concurrency 8 \
+            -expect-status 302 \
+            -max-error-rate 0.01 \
+            -max-p95 1s
+          visits="$(compose exec -T postgres psql -U qh8z -d qh8z -tAc "SELECT visit_count FROM links WHERE slug='ci-load-test'")"
+          if [ "${visits:-0}" -le 0 ]; then
+            echo "redirect load did not record visits" >&2
+            exit 1
+          fi
+
+          network="$(docker inspect "$(compose ps -q postgres)" | jq -r '.[0].NetworkSettings.Networks | keys[]' | grep '_backend$' | head -n 1)"
+          mkdir -p .ci-restic
+          docker run --rm \
+            --network "$network" \
+            -e POSTGRES_HOST=postgres \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=qh8z \
+            -e POSTGRES_DB=qh8z \
+            -e RESTIC_REPOSITORY=/restic-repo \
+            -e BACKUP_ONCE=1 \
+            -v "$PWD/.ci-restic:/restic-repo" \
+            -v "$QH8Z_SECRETS_DIR/postgres_password:/run/secrets/postgres_password:ro" \
+            -v "$QH8Z_SECRETS_DIR/restic_password:/run/secrets/restic_password:ro" \
+            -v "$QH8Z_SECRETS_DIR/restic_s3_access_key:/run/secrets/restic_s3_access_key:ro" \
+            -v "$QH8Z_SECRETS_DIR/restic_s3_secret_key:/run/secrets/restic_s3_secret_key:ro" \
+            --tmpfs /backup-work \
+            --tmpfs /backup-status \
+            qh8z-backup:ci
+          test -s .ci-restic/config
+
+          compose exec -T postgres createdb -U qh8z qh8z_restore_ci
+          docker run --rm \
+            --network "$network" \
+            --entrypoint /usr/local/bin/restore.sh \
+            -e POSTGRES_HOST=postgres \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=qh8z \
+            -e POSTGRES_DB=qh8z_restore_ci \
+            -e RESTIC_REPOSITORY=/restic-repo \
+            -e RESTORE_SNAPSHOT=latest \
+            -e CONFIRM_RESTORE=qh8z_restore_ci \
+            -v "$PWD/.ci-restic:/restic-repo" \
+            -v "$QH8Z_SECRETS_DIR/postgres_password:/run/secrets/postgres_password:ro" \
+            -v "$QH8Z_SECRETS_DIR/restic_password:/run/secrets/restic_password:ro" \
+            -v "$QH8Z_SECRETS_DIR/restic_s3_access_key:/run/secrets/restic_s3_access_key:ro" \
+            -v "$QH8Z_SECRETS_DIR/restic_s3_secret_key:/run/secrets/restic_s3_secret_key:ro" \
+            --tmpfs /backup-work \
+            qh8z-backup:ci
+          restored="$(compose exec -T postgres psql -U qh8z -d qh8z_restore_ci -tAc "SELECT COUNT(*) FROM links WHERE slug='ci-load-test'")"
+          if [ "$restored" -ne 1 ]; then
+            echo "restored database did not contain the seeded link" >&2
+            exit 1
+          fi
+
+          QH8Z_FAILURE_TEST_ACK=maintenance-window \
+          QH8Z_ENV_FILE=/dev/null \
+          QH8Z_COMPOSE_FILE=deploy/compose.production.yml \
+          deploy/failure-test.sh
+
+          trap - EXIT INT TERM
+          cleanup

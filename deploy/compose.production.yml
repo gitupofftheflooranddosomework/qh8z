@@ -1,0 +1,224 @@
+name: qh8z-production
+
+x-logging: &default-logging
+  driver: local
+  options:
+    max-size: 20m
+    max-file: "5"
+
+services:
+  caddy:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+      QH8Z_DOMAIN: ${QH8Z_DOMAIN:-qh8z.com}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      qh8z:
+        condition: service_healthy
+    networks:
+      frontend:
+        ipv4_address: 172.30.0.2
+    logging: *default-logging
+
+  qh8z:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    group_add:
+      - ${QH8Z_SECRET_GID:-65532}
+    environment:
+      PORT: "8080"
+      QH8Z_ENV: production
+      QH8Z_BASE_URL: https://${QH8Z_DOMAIN:-qh8z.com}
+      QH8Z_STORAGE: postgres
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: qh8z
+      DATABASE_NAME: qh8z
+      DATABASE_SSLMODE: disable
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
+      QH8Z_EMAIL_MODE: smtp
+      SMTP_ADDR: ${SMTP_ADDR:?SMTP_ADDR is required}
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      SMTP_FROM: ${SMTP_FROM:?SMTP_FROM is required}
+      QH8Z_REPUTATION_MODE: webrisk
+      WEBRISK_API_KEY_FILE: /run/secrets/webrisk_api_key
+      WEBRISK_EXTENDED_COVERAGE: ${WEBRISK_EXTENDED_COVERAGE:-false}
+      QH8Z_ADMIN_TOKEN_FILE: /run/secrets/admin_token
+      QH8Z_RATE_LIMIT_SALT_FILE: /run/secrets/rate_limit_salt
+      QH8Z_TRUSTED_PROXIES: 172.30.0.2/32
+      QH8Z_BILLING_MODE: stripe
+      STRIPE_SECRET_KEY_FILE: /run/secrets/stripe_secret_key
+      STRIPE_WEBHOOK_SECRET_FILE: /run/secrets/stripe_webhook_secret
+      STRIPE_PRO_PRICE_ID: ${STRIPE_PRO_PRICE_ID:?STRIPE_PRO_PRICE_ID is required}
+    secrets:
+      - postgres_password
+      - smtp_password
+      - webrisk_api_key
+      - admin_token
+      - rate_limit_salt
+      - stripe_secret_key
+      - stripe_webhook_secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      frontend:
+        ipv4_address: 172.30.0.3
+      backend:
+        ipv4_address: 172.31.0.3
+    logging: *default-logging
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: qh8z
+      POSTGRES_DB: qh8z
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qh8z -d qh8z"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      backend:
+        ipv4_address: 172.31.0.2
+    logging: *default-logging
+
+  prometheus:
+    image: prom/prometheus:v3.13.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      qh8z:
+        condition: service_healthy
+      alertmanager:
+        condition: service_started
+    networks:
+      backend:
+        ipv4_address: 172.31.0.4
+    logging: *default-logging
+
+  alertmanager:
+    image: prom/alertmanager:v0.32.1
+    restart: unless-stopped
+    group_add:
+      - ${QH8Z_SECRET_GID:-65532}
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    secrets:
+      - alertmanager_discord_webhook
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks:
+      backend:
+        ipv4_address: 172.31.0.5
+    logging: *default-logging
+
+  backup:
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: qh8z
+      POSTGRES_DB: qh8z
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:?RESTIC_REPOSITORY is required}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-21600}
+    secrets:
+      - postgres_password
+      - restic_password
+      - restic_s3_access_key
+      - restic_s3_secret_key
+    tmpfs:
+      - /backup-work:size=2g,mode=700
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      backend:
+        ipv4_address: 172.31.0.6
+    logging: *default-logging
+
+secrets:
+  postgres_password:
+    file: ${QH8Z_SECRETS_DIR:-/etc/qh8z/secrets}/postgres_password
+  smtp_password:
+    file: ${QH8Z_SECRETS_DIR:-/etc/qh8z/secrets}/smtp_password
+  webrisk_api_key:
+    file: ${QH8Z_SECRETS_DIR:-/etc/qh8z/secrets}/webrisk_api_key
+  admin_token:
+    file: ${QH8Z_SECRETS_DIR:-/etc/qh8z/secrets}/admin_token
+  rate_limit_salt:
+    file: ${QH8Z_SECRETS_DIR:-/etc/qh8z/secrets}/rate_limit_salt
+  stripe_secret_key:
+    file: ${QH8Z_SECRETS_DIR:-/etc/qh8z/secrets}/stripe_secret_key
+  stripe_webhook_secret:
+    file: ${QH8Z_SECRETS_DIR:-/etc/qh8z/secrets}/stripe_webhook_secret
+  restic_password:
+    file: ${QH8Z_SECRETS_DIR:-/etc/qh8z/secrets}/restic_password
+  restic_s3_access_key:
+    file: ${QH8Z_SECRETS_DIR:-/etc/qh8z/secrets}/restic_s3_access_key
+  restic_s3_secret_key:
+    file: ${QH8Z_SECRETS_DIR:-/etc/qh8z/secrets}/restic_s3_secret_key
+  alertmanager_discord_webhook:
+    file: ${QH8Z_SECRETS_DIR:-/etc/qh8z/secrets}/alertmanager_discord_webhook
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
+  prometheus_data:
+  alertmanager_data:
+
+networks:
+  frontend:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24

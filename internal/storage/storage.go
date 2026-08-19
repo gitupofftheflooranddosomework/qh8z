@@ -26,6 +26,7 @@ type Store interface {
 	CreateCustomDomain(context.Context, core.CustomDomain, core.AuditEntry) error
 	ListCustomDomains(context.Context, string) ([]core.CustomDomain, error)
 	GetCustomDomain(context.Context, string, string) (core.CustomDomain, error)
+	IsVerifiedCustomDomain(context.Context, string) (bool, error)
 	SetCustomDomainVerified(context.Context, string, string, time.Time, core.AuditEntry) (core.CustomDomain, error)
 	DeleteCustomDomain(context.Context, string, string, core.AuditEntry) error
 

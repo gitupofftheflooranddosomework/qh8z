@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -39,11 +38,16 @@ type destinationRejectedError struct {
 func (e *destinationRejectedError) Error() string { return e.reason }
 
 func openSafety(environment string) (reputation.Checker, safetyConfig, error) {
-	cfg := safetyConfig{
-		adminToken:    os.Getenv("QH8Z_ADMIN_TOKEN"),
-		rateLimitSalt: os.Getenv("QH8Z_RATE_LIMIT_SALT"),
+	adminToken, err := secretValue("QH8Z_ADMIN_TOKEN")
+	if err != nil {
+		return nil, safetyConfig{}, err
 	}
-	for _, raw := range strings.Split(os.Getenv("QH8Z_TRUSTED_PROXIES"), ",") {
+	rateLimitSalt, err := secretValue("QH8Z_RATE_LIMIT_SALT")
+	if err != nil {
+		return nil, safetyConfig{}, err
+	}
+	cfg := safetyConfig{adminToken: adminToken, rateLimitSalt: rateLimitSalt}
+	for _, raw := range strings.Split(envOr("QH8Z_TRUSTED_PROXIES", ""), ",") {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
 			continue
@@ -75,8 +79,12 @@ func openSafety(environment string) (reputation.Checker, safetyConfig, error) {
 	case "disabled":
 		return reputation.AllowAll{}, cfg, nil
 	case "webrisk":
-		extended := strings.EqualFold(os.Getenv("WEBRISK_EXTENDED_COVERAGE"), "true")
-		checker, err := reputation.NewWebRisk(os.Getenv("WEBRISK_API_KEY"), extended)
+		apiKey, err := secretValue("WEBRISK_API_KEY")
+		if err != nil {
+			return nil, safetyConfig{}, err
+		}
+		extended := strings.EqualFold(envOr("WEBRISK_EXTENDED_COVERAGE", "false"), "true")
+		checker, err := reputation.NewWebRisk(apiKey, extended)
 		if err != nil {
 			return nil, safetyConfig{}, err
 		}
