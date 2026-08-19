@@ -78,7 +78,7 @@ jobs:
             -e QH8Z_DOMAIN \
             -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.11.4-alpine \
-            validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Validate Prometheus config and alerts
         run: |
           docker run --rm \
