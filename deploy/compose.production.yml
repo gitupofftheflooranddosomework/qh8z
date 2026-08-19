@@ -92,7 +92,10 @@ services:
     logging: *default-logging
 
   postgres:
-    image: postgres:17-alpine
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
+    image: qh8z-postgres:17-hardened
     restart: unless-stopped
     environment:
       POSTGRES_USER: qh8z
