@@ -36,6 +36,7 @@ jobs:
       STRIPE_PRO_PRICE_ID: price_ci
       RESTIC_REPOSITORY: s3:https://storage.example.com/qh8z-ci
       QH8Z_SECRETS_DIR: ${{ github.workspace }}/.ci-secrets
+      QH8Z_SECRET_GID: "65532"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v7
@@ -68,7 +69,9 @@ jobs:
           for secret in postgres_password smtp_password webrisk_api_key admin_token rate_limit_salt stripe_secret_key stripe_webhook_secret restic_password restic_s3_access_key restic_s3_secret_key alertmanager_discord_webhook; do
             printf 'ci-placeholder-%s-abcdefghijklmnopqrstuvwxyz0123456789\n' "$secret" > "$QH8Z_SECRETS_DIR/$secret"
           done
-          chmod 600 "$QH8Z_SECRETS_DIR"/*
+          sudo chown -R "0:$QH8Z_SECRET_GID" "$QH8Z_SECRETS_DIR"
+          sudo chmod 750 "$QH8Z_SECRETS_DIR"
+          sudo chmod 640 "$QH8Z_SECRETS_DIR"/*
       - name: Validate production Compose
         run: docker compose -f deploy/compose.production.yml config --quiet
       - name: Validate Caddy config
@@ -95,6 +98,7 @@ jobs:
       - name: Validate Alertmanager config
         run: |
           docker run --rm \
+            --group-add "$QH8Z_SECRET_GID" \
             --entrypoint /bin/amtool \
             -v "$PWD/deploy/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
             -v "$QH8Z_SECRETS_DIR/alertmanager_discord_webhook:/run/secrets/alertmanager_discord_webhook:ro" \
