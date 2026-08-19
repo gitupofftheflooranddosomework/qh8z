@@ -41,6 +41,8 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    group_add:
+      - ${QH8Z_SECRET_GID:-65532}
     environment:
       PORT: "8080"
       QH8Z_ENV: production
@@ -135,6 +137,8 @@ services:
   alertmanager:
     image: prom/alertmanager:v0.32.1
     restart: unless-stopped
+    group_add:
+      - ${QH8Z_SECRET_GID:-65532}
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
