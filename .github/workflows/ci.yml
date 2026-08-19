@@ -61,13 +61,14 @@ jobs:
         run: CGO_ENABLED=0 go build -trimpath ./cmd/qh8z ./cmd/healthcheck ./cmd/loadtest
       - name: Validate development Compose
         run: docker compose config --quiet
-      - name: Build application container
-        run: docker build -t qh8z:ci .
-      - name: Build production infrastructure containers
+      - name: Build production-owned containers
         run: |
+          docker build -t qh8z:ci .
           docker build -t qh8z-caddy:ci deploy/caddy
-          docker build -t qh8z-prometheus:ci deploy/prometheus
-          docker build -t qh8z-alertmanager:ci deploy/alertmanager
+      - name: Pull pinned monitoring containers
+        run: |
+          docker pull prom/prometheus:v3.13.2
+          docker pull prom/alertmanager:v0.33.1
       - name: Prepare production config fixtures
         run: |
           mkdir -p "$QH8Z_SECRETS_DIR"
@@ -93,12 +94,12 @@ jobs:
             --entrypoint /bin/promtool \
             -v "$PWD/deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
             -v "$PWD/deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro" \
-            qh8z-prometheus:ci \
+            prom/prometheus:v3.13.2 \
             check config /etc/prometheus/prometheus.yml
           docker run --rm \
             --entrypoint /bin/promtool \
             -v "$PWD/deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro" \
-            qh8z-prometheus:ci \
+            prom/prometheus:v3.13.2 \
             check rules /etc/prometheus/alerts.yml
       - name: Validate Alertmanager config
         run: |
@@ -107,7 +108,7 @@ jobs:
             --entrypoint /bin/amtool \
             -v "$PWD/deploy/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
             -v "$QH8Z_SECRETS_DIR/alertmanager_discord_webhook:/run/secrets/alertmanager_discord_webhook:ro" \
-            qh8z-alertmanager:ci \
+            prom/alertmanager:v0.33.1 \
             check-config /etc/alertmanager/alertmanager.yml
       - name: Validate operations scripts
         run: |
