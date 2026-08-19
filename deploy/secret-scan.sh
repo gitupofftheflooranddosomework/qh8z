@@ -25,6 +25,34 @@ scan_rule() {
   done
 }
 
+scan_direct_secret_assignments() {
+  regex='(STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|WEBRISK_API_KEY|SMTP_PASSWORD|DATABASE_PASSWORD|QH8Z_ADMIN_TOKEN|QH8Z_RATE_LIMIT_SALT|AWS_SECRET_ACCESS_KEY|RESTIC_PASSWORD)=[A-Za-z0-9+/=_:.-]{16,}'
+
+  for commit in $(git rev-list --all); do
+    matches="$(git grep -I -h -E "$regex" "$commit" -- . 2>/dev/null || true)"
+    [ -n "$matches" ] || continue
+
+    if ! printf '%s\n' "$matches" | while IFS= read -r line; do
+      value="${line#*=}"
+      case "$value" in
+        change-me-*)
+          # Historical .env.example files deliberately use this documented
+          # non-secret prefix. Keep these fixtures scannable without treating
+          # them as leaked opaque credentials.
+          continue
+          ;;
+        *)
+          exit 1
+          ;;
+      esac
+    done; then
+      echo "secret scan failed: rule=direct_secret_assignment commit=$commit" >&2
+      failed=1
+      return
+    fi
+  done
+}
+
 # Provider formats are intentionally length-bounded so short test fixtures such
 # as sk_test_qh8z and whsec_test are not mistaken for real credentials.
 scan_rule stripe_secret 'sk_(live|test)_[A-Za-z0-9]{20,}'
@@ -38,9 +66,9 @@ scan_rule discord_webhook 'https://(discord(app)?\.com)/api/webhooks/[0-9]{8,}/[
 scan_rule private_key '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----'
 
 # qh8z production secrets may also be opaque random strings with no provider
-# prefix. Detect direct tracked assignments while allowing ${VAR}, file paths,
-# placeholders, and empty documentation examples.
-scan_rule direct_secret_assignment '(STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|WEBRISK_API_KEY|SMTP_PASSWORD|DATABASE_PASSWORD|QH8Z_ADMIN_TOKEN|QH8Z_RATE_LIMIT_SALT|AWS_SECRET_ACCESS_KEY|RESTIC_PASSWORD)=[A-Za-z0-9+/=_:.-]{16,}'
+# prefix. Detect direct tracked assignments while allowing the explicit
+# change-me-* placeholders used by historical example configuration.
+scan_direct_secret_assignments
 
 if [ "$failed" -ne 0 ]; then
   echo "secret scan failed; inspect the named rule and commit locally without printing credentials into CI logs" >&2
