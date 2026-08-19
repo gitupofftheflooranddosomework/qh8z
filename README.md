@@ -6,26 +6,25 @@ Rather than literally merging Kutt's JavaScript codebase with Shlink's PHP codeb
 
 ## Current milestone
 
-The qh8z production core now includes:
+The qh8z launch candidate includes:
 
 - PostgreSQL-backed durable short links and visit analytics
 - embedded, idempotent database migrations
-- account registration/login/logout
-- verified-email workflow with SMTP production delivery
-- workspace ownership with owner/admin/member roles
-- workspace-owned links and analytics authorization
-- scoped API keys whose plaintext secrets are never stored
-- durable audit log
+- account registration/login/logout and verified email
+- workspaces with owner/admin/member roles
+- workspace-owned links and scoped API keys
+- full link management, QR codes, custom domains, and DNS verification
+- dashboard analytics with plan-based retention
+- Free and Pro entitlements, usage metering, Stripe checkout, webhooks, and customer portal
 - distributed per-IP/user/API-key rate limits
-- Google Web Risk reputation checks for new destinations
-- managed allow/block rules, abuse reports, and link suspension tooling
-- secure session cookies and hashed session/verification secrets
-- readiness/liveness endpoints
-- structured JSON logging and graceful shutdown
-- production guards that refuse in-memory storage or log-only email
-- Docker, Compose, and PostgreSQL-backed GitHub Actions CI
+- Google Web Risk reputation checks, managed allow/block rules, abuse reporting, and suspension/review tooling
+- secure session cookies and hashed session/verification/API-key secrets
+- production Caddy/TLS, PostgreSQL, Prometheus, Alertmanager, structured logs, readiness/liveness, alerts, and offsite-backup tooling
+- guarded deployment, encrypted backup/restore, rollback, load, and failure-test procedures
+- public Terms, Privacy Policy, Acceptable Use Policy, pricing, abuse-reporting, and security-reporting pages
+- GitHub Actions coverage for race tests, the full customer/billing journey, secret-history scanning, reachable Go vulnerabilities, production-image vulnerability scanning, backup/restore, redirect load, and failure recovery
 
-> **Launch status:** durable data, identity/ownership, and the public-service safety gate are implemented. Full link management/custom domains, richer analytics, billing, production deployment/monitoring, legal policies, and final security/load testing remain launch blockers tracked in GitHub Issue #3.
+> **Launch status:** repository-side product, safety, commercial, operations, and launch/legal work is implemented through GitHub Issue #3. Public launch still requires the live-environment verification documented in [`docs/LAUNCH_RUNBOOK.md`](docs/LAUNCH_RUNBOOK.md), including production DNS/TLS, provider credentials and Stripe flow, monitored role mailboxes, production abuse/log checks, and the final qh8z.com smoke test. Issue #3 remains the authoritative launch gate until those checks pass.
 
 ## Run locally with PostgreSQL
 
@@ -103,7 +102,9 @@ http://localhost:8080/example
 - [`docs/SAFETY.md`](docs/SAFETY.md) — rate limits, Web Risk, destination validation, abuse reports, and admin safety controls.
 - [`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md) — PostgreSQL backup and recovery procedure.
 - [`docs/CACHING.md`](docs/CACHING.md) — Redis-compatible redirect caching strategy.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — product/launch roadmap.
+- [`docs/PRODUCTION_OPERATIONS.md`](docs/PRODUCTION_OPERATIONS.md) — production deployment, monitoring, backup, restore, rollback, and failure operations.
+- [`docs/LAUNCH_RUNBOOK.md`](docs/LAUNCH_RUNBOOK.md) — final live-environment launch verification.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — product roadmap beyond the launch gate.
 - GitHub Issue #3 is the authoritative public-launch gate.
 
 ## Open-source inspiration
