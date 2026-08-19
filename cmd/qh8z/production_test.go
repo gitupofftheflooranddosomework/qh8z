@@ -44,7 +44,7 @@ func TestSecretValueAndDatabaseURLFromFiles(t *testing.T) {
 	}
 }
 
-func TestTLSAuthorizationOnlyAllowsVerifiedCustomDomains(t *testing.T) {
+func TestTLSAuthorizationRequiresVerifiedPaidCustomDomain(t *testing.T) {
 	a, fm := testApp()
 	owner, _ := registerAndVerify(t, a, fm, "tls-owner@example.com")
 	now := time.Now().UTC()
@@ -59,21 +59,55 @@ func TestTLSAuthorizationOnlyAllowsVerifiedCustomDomains(t *testing.T) {
 		t.Fatalf("create custom domain: %v", err)
 	}
 
-	unverified := httptest.NewRequest(http.MethodGet, "/internal/tls/allow?domain=go.customer.example.org", nil)
-	unverifiedRec := httptest.NewRecorder()
-	a.routes().ServeHTTP(unverifiedRec, unverified)
-	if unverifiedRec.Code != http.StatusForbidden {
-		t.Fatalf("unverified TLS authorization = %d", unverifiedRec.Code)
+	request := func() int {
+		req := httptest.NewRequest(http.MethodGet, "/internal/tls/allow?domain=go.customer.example.org", nil)
+		rec := httptest.NewRecorder()
+		a.routes().ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if got := request(); got != http.StatusForbidden {
+		t.Fatalf("unverified TLS authorization = %d", got)
 	}
 
 	if _, err := a.store.SetCustomDomainVerified(context.Background(), owner.Workspace.ID, domain.ID, now, core.AuditEntry{}); err != nil {
 		t.Fatalf("verify custom domain: %v", err)
 	}
-	verified := httptest.NewRequest(http.MethodGet, "/internal/tls/allow?domain=go.customer.example.org", nil)
-	verifiedRec := httptest.NewRecorder()
-	a.routes().ServeHTTP(verifiedRec, verified)
-	if verifiedRec.Code != http.StatusNoContent {
-		t.Fatalf("verified TLS authorization = %d, body = %s", verifiedRec.Code, verifiedRec.Body.String())
+	if got := request(); got != http.StatusForbidden {
+		t.Fatalf("verified free-plan TLS authorization = %d", got)
+	}
+
+	billing := core.BillingState{
+		WorkspaceID:            owner.Workspace.ID,
+		PlanCode:               core.PlanPro,
+		Status:                 core.BillingStatusActive,
+		ProviderCustomerID:     "cus_tls_test",
+		ProviderSubscriptionID: "sub_tls_test",
+		UpdatedAt:              now,
+	}
+	if err := a.store.UpsertBillingState(context.Background(), billing, core.AuditEntry{}); err != nil {
+		t.Fatalf("activate pro billing: %v", err)
+	}
+	if got := request(); got != http.StatusNoContent {
+		t.Fatalf("active pro TLS authorization = %d", got)
+	}
+
+	billing.Status = core.BillingStatusPastDue
+	billing.UpdatedAt = now.Add(time.Second)
+	if err := a.store.UpsertBillingState(context.Background(), billing, core.AuditEntry{}); err != nil {
+		t.Fatalf("set past-due billing: %v", err)
+	}
+	if got := request(); got != http.StatusNoContent {
+		t.Fatalf("past-due pro TLS authorization = %d", got)
+	}
+
+	billing.Status = core.BillingStatusCanceled
+	billing.UpdatedAt = now.Add(2 * time.Second)
+	if err := a.store.UpsertBillingState(context.Background(), billing, core.AuditEntry{}); err != nil {
+		t.Fatalf("cancel pro billing: %v", err)
+	}
+	if got := request(); got != http.StatusForbidden {
+		t.Fatalf("canceled pro TLS authorization = %d", got)
 	}
 
 	invalid := httptest.NewRequest(http.MethodGet, "/internal/tls/allow?domain=127.0.0.1", nil)
