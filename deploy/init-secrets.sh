@@ -2,20 +2,29 @@
 set -eu
 
 secret_dir="${QH8Z_SECRETS_DIR:-/etc/qh8z/secrets}"
+secret_gid="${QH8Z_SECRET_GID:-65532}"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "run this script as root so secrets can be created under $secret_dir" >&2
   exit 1
 fi
 
-install -d -m 0700 "$secret_dir"
-umask 077
+install -d -m 0750 "$secret_dir"
+chown "0:$secret_gid" "$secret_dir"
+umask 027
+
+secure_secret() {
+  path="$1"
+  chown "0:$secret_gid" "$path"
+  chmod 0640 "$path"
+}
 
 generate_if_missing() {
   name="$1"
   bytes="$2"
   path="$secret_dir/$name"
   if [ -s "$path" ]; then
+    secure_secret "$path"
     echo "keeping existing $path"
     return
   fi
@@ -24,7 +33,7 @@ generate_if_missing() {
   else
     head -c "$bytes" /dev/urandom | base64 | tr -d '\n' > "$path"
   fi
-  chmod 0600 "$path"
+  secure_secret "$path"
   echo "generated $path"
 }
 
@@ -33,9 +42,14 @@ generate_if_missing admin_token 48
 generate_if_missing rate_limit_salt 48
 generate_if_missing restic_password 48
 
+for path in "$secret_dir"/*; do
+  [ -f "$path" ] || continue
+  secure_secret "$path"
+done
+
 cat <<EOF
 
-Generated qh8z-owned secrets. Before deployment, create these service-provided secret files with mode 0600:
+Generated qh8z-owned secrets. Before deployment, create these service-provided secret files, then rerun this script so they are secured as root:$secret_gid with mode 0640:
   $secret_dir/smtp_password
   $secret_dir/webrisk_api_key
   $secret_dir/stripe_secret_key
