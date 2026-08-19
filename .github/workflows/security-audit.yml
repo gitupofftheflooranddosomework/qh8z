@@ -25,11 +25,11 @@ jobs:
       - name: Build production-owned images
         run: |
           docker build -t qh8z:security .
+          docker build -t qh8z-caddy:security deploy/caddy
           docker build -t qh8z-backup:security deploy/backup
 
       - name: Pull pinned production images
         run: |
-          docker pull caddy:2.11.4-alpine
           docker pull postgres:17-alpine
           docker pull prom/prometheus:v3.13.1
           docker pull prom/alertmanager:v0.32.1
@@ -51,8 +51,8 @@ jobs:
               "$image"
           }
           scan_image qh8z:security
+          scan_image qh8z-caddy:security
           scan_image qh8z-backup:security
-          scan_image caddy:2.11.4-alpine
           scan_image postgres:17-alpine
           scan_image prom/prometheus:v3.13.1
           scan_image prom/alertmanager:v0.32.1
