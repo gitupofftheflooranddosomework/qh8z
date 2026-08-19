@@ -7,12 +7,13 @@ import (
 	"testing"
 )
 
-func TestPublicLegalPages(t *testing.T) {
+func TestPublicLegalAndPricingPages(t *testing.T) {
 	a, _ := testApp()
 	for _, test := range []struct {
 		path string
 		want string
 	}{
+		{path: "/pricing", want: "Pro — C$12.00 per month"},
 		{path: "/terms", want: "qh8z Terms of Service"},
 		{path: "/privacy", want: "qh8z Privacy Policy"},
 		{path: "/acceptable-use", want: "qh8z Acceptable Use Policy"},
