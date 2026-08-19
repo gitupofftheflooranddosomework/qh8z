@@ -26,7 +26,7 @@ Firewall policy:
 
 Point the apex `qh8z.com` A/AAAA records at the VPS and point `www.qh8z.com` at the same service. Caddy obtains and renews the primary certificates automatically.
 
-Customer custom domains must point at qh8z and complete the TXT verification shown by the dashboard. Caddy's on-demand TLS `ask` endpoint calls qh8z internally and authorizes certificate issuance only for hosts that are already verified in the `custom_domains` table.
+Customer custom domains must point at qh8z and complete the TXT verification shown by the dashboard. Caddy's on-demand TLS authorization endpoint calls qh8z internally and authorizes certificate issuance only for hosts that are verified and belong to a currently entitled Pro workspace. The same authorization check runs before every branded-domain request, so cancellation removes branded traffic even when a certificate is already cached.
 
 ## 3. Configuration
 
@@ -45,7 +45,9 @@ Generate qh8z-owned secrets:
 sudo QH8Z_SECRETS_DIR=/etc/qh8z/secrets deploy/init-secrets.sh
 ```
 
-Then install these service-provided secrets as root-readable files with mode `0600`:
+The production qh8z process runs as non-root UID/GID `65532`. Secret files are therefore intentionally owned by `root:65532` with mode `0640`, and the secret directory is `root:65532` with mode `0750`. This keeps secret contents inaccessible to unrelated users while allowing the explicitly configured non-root services to read them.
+
+Install these service-provided secrets, then rerun `deploy/init-secrets.sh` so ownership and permissions are normalized:
 
 ```text
 /etc/qh8z/secrets/smtp_password
