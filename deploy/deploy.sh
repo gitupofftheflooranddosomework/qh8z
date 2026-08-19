@@ -32,7 +32,7 @@ else
   echo "no running production database found; skipping pre-deploy backup"
 fi
 
-compose build --pull qh8z caddy postgres backup
+compose build --pull qh8z caddy postgres prometheus alertmanager backup
 compose up -d --remove-orphans
 
 attempts=0
@@ -41,7 +41,7 @@ while ! compose exec -T qh8z /healthcheck >/dev/null 2>&1; do
   if [ "$attempts" -ge 45 ]; then
     echo "deployment failed readiness check" >&2
     compose ps >&2 || true
-    compose logs --since 10m qh8z postgres caddy >&2 || true
+    compose logs --since 10m qh8z postgres caddy prometheus alertmanager >&2 || true
     exit 1
   fi
   sleep 2
