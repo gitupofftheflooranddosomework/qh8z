@@ -12,7 +12,7 @@ alias qh8z-compose='docker compose --env-file deploy/.env.production -f deploy/c
 
 1. Confirm the branch/commit intended for production and record the current production SHA.
 2. Confirm CI is green for the candidate SHA.
-3. Confirm all secret files exist under `QH8Z_SECRETS_DIR` and are mode `0600`.
+3. Confirm all secret files exist under `QH8Z_SECRETS_DIR`, are owned by `root:${QH8Z_SECRET_GID:-65532}`, and are mode `0640`; the directory itself must be mode `0750`.
 4. Validate the Compose configuration.
 5. Take a one-shot encrypted offsite database backup.
 6. Build the qh8z and backup images.
@@ -185,15 +185,18 @@ The test passes only if:
 
 The primary domain is managed directly by Caddy. Customer domains use on-demand TLS with an internal authorization request to `/internal/tls/allow?domain=<host>`.
 
-That endpoint returns success only when the hostname exists as a verified custom domain in PostgreSQL. Caddy blocks `/internal/*` from public access and qh8z itself is not published on a host port.
+That endpoint returns success only when the hostname exists as a verified custom domain and its workspace currently has Pro entitlement. Caddy uses the check both for on-demand certificate issuance and before every custom-domain request, so a canceled Pro workspace stops serving branded links even if Caddy still has a cached certificate. The current launch grace policy keeps Pro entitlement during `past_due` and removes it when billing status becomes `canceled`.
 
-If certificate issuance fails:
+Caddy blocks `/internal/*` from public access and qh8z itself is not published on a host port in production.
+
+If certificate issuance or branded traffic fails:
 
 1. confirm the customer's A/AAAA/CNAME reaches the qh8z server,
 2. confirm their qh8z TXT ownership verification is complete,
 3. confirm the domain appears verified in the dashboard,
-4. inspect Caddy logs for ACME errors or rate-limit messages,
-5. never change the TLS authorization endpoint to approve arbitrary hostnames as a workaround.
+4. confirm the workspace still has Pro entitlement,
+5. inspect Caddy logs for ACME, authorization, or rate-limit messages,
+6. never change the TLS authorization endpoint to approve arbitrary hostnames as a workaround.
 
 ## Secrets incident
 
@@ -201,9 +204,10 @@ If any production secret is exposed:
 
 1. rotate it at the provider immediately,
 2. replace the corresponding file under `/etc/qh8z/secrets`,
-3. restart only the services that consume that secret,
-4. revoke old Stripe/Web Risk/SMTP/object-storage credentials at their provider,
-5. review access and application logs for abuse,
-6. rotate qh8z admin token/rate-limit salt as appropriate.
+3. rerun `deploy/init-secrets.sh` to restore `root:${QH8Z_SECRET_GID:-65532}` ownership and mode `0640`,
+4. restart only the services that consume that secret,
+5. revoke old Stripe/Web Risk/SMTP/object-storage credentials at their provider,
+6. review access and application logs for abuse,
+7. rotate qh8z admin token/rate-limit salt as appropriate.
 
 Secret file contents must never be pasted into GitHub issues, application logs, or the repository.
