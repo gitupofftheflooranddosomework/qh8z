@@ -32,7 +32,7 @@ else
   echo "no running production database found; skipping pre-deploy backup"
 fi
 
-compose build --pull qh8z backup
+compose build --pull qh8z caddy backup
 compose up -d --remove-orphans
 
 attempts=0
