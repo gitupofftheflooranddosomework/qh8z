@@ -22,17 +22,14 @@ jobs:
       - name: Scan reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 
-      - name: Build production-owned images
+      - name: Build production images
         run: |
           docker build -t qh8z:security .
           docker build -t qh8z-caddy:security deploy/caddy
           docker build -t qh8z-postgres:security deploy/postgres
+          docker build -t qh8z-prometheus:security deploy/prometheus
+          docker build -t qh8z-alertmanager:security deploy/alertmanager
           docker build -t qh8z-backup:security deploy/backup
-
-      - name: Pull pinned monitoring images
-        run: |
-          docker pull prom/prometheus:v3.13.2
-          docker pull prom/alertmanager:v0.33.1
 
       - name: Scan production images for fixable high or critical vulnerabilities
         run: |
@@ -53,6 +50,6 @@ jobs:
           scan_image qh8z:security
           scan_image qh8z-caddy:security
           scan_image qh8z-postgres:security
+          scan_image qh8z-prometheus:security
+          scan_image qh8z-alertmanager:security
           scan_image qh8z-backup:security
-          scan_image prom/prometheus:v3.13.2
-          scan_image prom/alertmanager:v0.33.1
