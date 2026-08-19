@@ -63,6 +63,8 @@ jobs:
         run: docker compose config --quiet
       - name: Build application container
         run: docker build -t qh8z:ci .
+      - name: Build Caddy container
+        run: docker build -t qh8z-caddy:ci deploy/caddy
       - name: Prepare production config fixtures
         run: |
           mkdir -p "$QH8Z_SECRETS_DIR"
@@ -80,7 +82,7 @@ jobs:
             -e ACME_EMAIL \
             -e QH8Z_DOMAIN \
             -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2.11.4-alpine \
+            qh8z-caddy:ci \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Validate Prometheus config and alerts
         run: |
