@@ -1,7 +1,7 @@
 {
 	email {$ACME_EMAIL}
 	on_demand_tls {
-		ask http://qh8z:8080/internal/tls/allow
+		task http://qh8z:8080/internal/tls/allow
 	}
 }
 
@@ -34,6 +34,10 @@ https:// {
 
 	@private path /metrics /internal/* /readyz
 	respond @private 404
+
+	forward_auth qh8z:8080 {
+		uri /internal/tls/allow?domain={host}
+	}
 
 	reverse_proxy qh8z:8080
 }
