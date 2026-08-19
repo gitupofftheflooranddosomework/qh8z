@@ -117,10 +117,7 @@ services:
     logging: *default-logging
 
   prometheus:
-    build:
-      context: ./prometheus
-      dockerfile: Dockerfile
-    image: qh8z-prometheus:3.13.2-patched
+    image: prom/prometheus:v3.13.2
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -144,10 +141,7 @@ services:
     logging: *default-logging
 
   alertmanager:
-    build:
-      context: ./alertmanager
-      dockerfile: Dockerfile
-    image: qh8z-alertmanager:0.33.1-patched
+    image: prom/alertmanager:v0.33.1
     restart: unless-stopped
     group_add:
       - ${QH8Z_SECRET_GID:-65532}
