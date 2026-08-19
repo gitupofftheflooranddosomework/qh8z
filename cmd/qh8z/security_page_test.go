@@ -16,7 +16,7 @@ func TestPublicSecurityPolicyPage(t *testing.T) {
 		t.Fatalf("status = %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Security", "security@qh8z.com", "Vulnerability"} {
+	for _, want := range []string{"Security policy", "security@qh8z.com", "Reporting a vulnerability"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("security page missing %q", want)
 		}
