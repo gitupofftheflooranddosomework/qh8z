@@ -162,6 +162,14 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /internal/tls/allow", a.tlsAllow)
 	mux.HandleFunc("GET /dashboard", a.dashboard)
 	mux.HandleFunc("GET /assets/dashboard.js", a.dashboardJS)
+	mux.HandleFunc("GET /assets/abuse.js", a.abuseReportJS)
+	mux.HandleFunc("GET /pricing", a.pricingPage)
+	mux.HandleFunc("GET /terms", a.termsPage)
+	mux.HandleFunc("GET /privacy", a.privacyPage)
+	mux.HandleFunc("GET /acceptable-use", a.acceptableUsePage)
+	mux.HandleFunc("GET /report-abuse", a.abuseReportPage)
+	mux.HandleFunc("GET /security", a.securityPage)
+	mux.HandleFunc("GET /.well-known/security.txt", a.securityText)
 
 	mux.Handle("POST /api/v1/auth/register", a.limitIPHandler("register", 10, time.Hour, http.HandlerFunc(a.register)))
 	mux.Handle("POST /api/v1/auth/login", a.limitIPHandler("login", 60, 15*time.Minute, http.HandlerFunc(a.login)))
@@ -241,7 +249,7 @@ func (a *app) home(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>qh8z</title><style>body{font-family:system-ui,sans-serif;background:#0b0d10;color:#fff;min-height:100vh;display:grid;place-items:center;margin:0}main{width:min(720px,90vw)}h1{font-size:72px;margin:0}a{color:white}code{background:#181c21;padding:.2em .4em;border-radius:6px}</style></head><body><main><h1>qh8z</h1><p>Fast links. Durable analytics. Secure accounts and workspace ownership.</p><p><a href="/dashboard">Open dashboard</a> · API available under <code>/api/v1</code>.</p></main></body></html>`))
+	_, _ = w.Write([]byte(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>qh8z</title><style>body{font-family:system-ui,sans-serif;background:#0b0d10;color:#fff;min-height:100vh;display:grid;place-items:center;margin:0}main{width:min(720px,90vw)}h1{font-size:72px;margin:0}a{color:white}code{background:#181c21;padding:.2em .4em;border-radius:6px}.legal{margin-top:28px;color:#9da8b7;font-size:14px}.legal a{color:#c7d0dc}</style></head><body><main><h1>qh8z</h1><p>Fast links. Durable analytics. Secure accounts and workspace ownership.</p><p><a href="/dashboard">Open dashboard</a> · <a href="/pricing">Pricing</a> · API available under <code>/api/v1</code>.</p><p class="legal"><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/acceptable-use">Acceptable Use</a> · <a href="/report-abuse">Report abuse</a> · <a href="/security">Security</a></p></main></body></html>`))
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, value any) bool {
