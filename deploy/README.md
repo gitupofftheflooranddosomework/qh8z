@@ -11,7 +11,7 @@ The public attack surface is intentionally small:
 - PostgreSQL: internal Docker network only
 - backup service: internal Docker network only
 
-Production uses locally hardened images for qh8z, Caddy, PostgreSQL, and the backup worker. Prometheus `v3.13.2` and Alertmanager `v0.33.1` are pinned upstream images and are scanned by the launch security workflow before release.
+Production builds hardened images for qh8z, Caddy, PostgreSQL, Prometheus, Alertmanager, and the backup worker. Prometheus remains on upstream release `v3.13.2` and Alertmanager on upstream release `v0.33.1`, but both binaries are rebuilt from those exact release tags on the patched Go 1.26.6 toolchain because the published upstream images were compiled with older vulnerable Go patch levels. Every production runtime image is scanned by the launch security workflow before release.
 
 ## 1. Host preparation
 
@@ -78,8 +78,7 @@ From the repository root:
 
 ```bash
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml config --quiet
-docker compose --env-file deploy/.env.production -f deploy/compose.production.yml pull prometheus alertmanager
-docker compose --env-file deploy/.env.production -f deploy/compose.production.yml build qh8z caddy postgres backup
+docker compose --env-file deploy/.env.production -f deploy/compose.production.yml build qh8z caddy postgres prometheus alertmanager backup
 ```
 
 Take an encrypted one-shot database backup before replacing an existing release:
@@ -90,7 +89,7 @@ docker compose --env-file deploy/.env.production -f deploy/compose.production.ym
 
 ## 5. Deploy
 
-The guarded deploy script validates Compose, takes a pre-deploy backup when a production database already exists, pulls the pinned monitoring images, builds the production-owned images, starts the stack, and waits for database-backed readiness:
+The guarded deploy script validates Compose, takes a pre-deploy backup when a production database already exists, builds all production runtime images from their pinned sources/bases, starts the stack, and waits for database-backed readiness:
 
 ```bash
 deploy/deploy.sh
