@@ -6,7 +6,7 @@ func TestPublicAndSystemRoutesAreReservedSlugs(t *testing.T) {
 	for _, slug := range []string{
 		"api", "assets", "internal", "healthz", "readyz", "metrics",
 		"admin", "login", "signup", "verify-email", "dashboard", "pricing",
-		"terms", "privacy", "acceptable-use", "report-abuse",
+		"terms", "privacy", "acceptable-use", "report-abuse", "security",
 	} {
 		if !reserved[slug] {
 			t.Fatalf("route slug %q is not reserved", slug)
