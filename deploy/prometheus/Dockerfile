@@ -1,6 +1,6 @@
 FROM golang:1.25.13-alpine AS build
 RUN apk add --no-cache git
-RUN git clone --depth 1 --branch v3.13.1 https://github.com/prometheus/prometheus.git /src
+RUN git clone --depth 1 --branch v3.13.2 https://github.com/prometheus/prometheus.git /src
 WORKDIR /src
 RUN go get golang.org/x/net@v0.56.0 \
     golang.org/x/text@v0.39.0 \
@@ -8,12 +8,12 @@ RUN go get golang.org/x/net@v0.56.0 \
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -tags netgo,builtinassets \
     -trimpath \
-    -ldflags="-s -w -X github.com/prometheus/common/version.Version=3.13.1-qh8z-patched" \
+    -ldflags="-s -w -X github.com/prometheus/common/version.Version=3.13.2-qh8z-patched" \
     -o /out/prometheus ./cmd/prometheus
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -tags netgo,builtinassets \
     -trimpath \
-    -ldflags="-s -w -X github.com/prometheus/common/version.Version=3.13.1-qh8z-patched" \
+    -ldflags="-s -w -X github.com/prometheus/common/version.Version=3.13.2-qh8z-patched" \
     -o /out/promtool ./cmd/promtool
 
 FROM alpine:3.24
