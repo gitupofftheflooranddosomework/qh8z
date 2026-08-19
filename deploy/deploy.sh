@@ -32,8 +32,7 @@ else
   echo "no running production database found; skipping pre-deploy backup"
 fi
 
-compose pull prometheus alertmanager
-compose build --pull qh8z caddy postgres backup
+compose build --pull qh8z caddy postgres prometheus alertmanager backup
 compose up -d --remove-orphans
 
 attempts=0
