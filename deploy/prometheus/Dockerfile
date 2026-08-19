@@ -1,7 +1,17 @@
-FROM golang:1.26.6-alpine AS build
-RUN apk add --no-cache git
+FROM node:22-alpine AS ui
+RUN apk add --no-cache bash git
+RUN corepack enable
 RUN git clone --depth 1 --branch v3.13.2 https://github.com/prometheus/prometheus.git /src
+WORKDIR /src/web/ui
+RUN pnpm install --frozen-lockfile
+RUN cd react-app && pnpm install --frozen-lockfile
+RUN CI="" pnpm run build
+
+FROM golang:1.26.6-alpine AS build
+RUN apk add --no-cache bash coreutils findutils gzip
+COPY --from=ui /src /src
 WORKDIR /src
+RUN bash scripts/compress_assets.sh
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -tags netgo,builtinassets \
     -trimpath \
