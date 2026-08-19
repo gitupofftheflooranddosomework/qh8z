@@ -8,7 +8,10 @@ x-logging: &default-logging
 
 services:
   caddy:
-    image: caddy:2.11.4-alpine
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile
+    image: qh8z-caddy:2.11.4-patched
     restart: unless-stopped
     environment:
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
