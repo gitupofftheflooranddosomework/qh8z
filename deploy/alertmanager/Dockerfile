@@ -7,6 +7,11 @@ RUN npm ci --no-audit --no-fund && npm run build
 FROM golang:1.26.6-alpine AS build
 COPY --from=ui /src /src
 WORKDIR /src
+RUN go get \
+    golang.org/x/crypto@v0.53.0 \
+    golang.org/x/net@v0.56.0 \
+    golang.org/x/text@v0.39.0 \
+    google.golang.org/grpc@v1.82.1
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -tags netgo \
     -trimpath \
