@@ -12,6 +12,11 @@ RUN apk add --no-cache bash coreutils findutils gzip
 COPY --from=ui /src /src
 WORKDIR /src
 RUN bash scripts/compress_assets.sh
+RUN go get \
+    golang.org/x/crypto@v0.52.0 \
+    golang.org/x/net@v0.56.0 \
+    golang.org/x/text@v0.39.0 \
+    google.golang.org/grpc@v1.82.1
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -tags netgo,builtinassets \
     -trimpath \
